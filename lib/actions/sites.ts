@@ -29,7 +29,7 @@ export async function createSite(formData: FormData) {
     return { error: parsed.error.issues[0].message }
   }
 
-  const supabase = await createServiceClient()
+  const supabase = createServiceClient()
   const { error } = await supabase.from('sites').insert([parsed.data])
 
   if (error) return { error: error.message }
@@ -45,7 +45,7 @@ export async function updateSite(siteId: string, data: {
   ga_id?: string
   is_active: boolean
 }) {
-  const supabase = await createServiceClient()
+  const supabase = createServiceClient()
   const { error } = await supabase
     .from('sites')
     .update({ ...data, updated_at: new Date().toISOString() })

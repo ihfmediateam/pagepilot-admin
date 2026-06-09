@@ -9,7 +9,7 @@ export async function PATCH(
   try {
     const { id } = await params
     const body = await request.json()
-    const supabase = await createServiceClient()
+    const supabase = createServiceClient()
 
     const { error } = await supabase
       .from('sites')
