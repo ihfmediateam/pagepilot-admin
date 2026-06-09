@@ -10,9 +10,20 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
-import { Loader2, Save, Package as PackageIcon, TrendingUp } from 'lucide-react'
+import { Loader2, Save, Package as PackageIcon, TrendingUp, ImageIcon, RefreshCw } from 'lucide-react'
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
+
+// Build the CDN URL for a given slug + pack key
+function pkgImageUrl(slug: string, packKey: string, ext = 'png') {
+  const n = packKey.replace('pack-', '') // '1' | '3' | '5'
+  return `${SUPABASE_URL}/storage/v1/object/public/images/${slug}/packages/pack-${n}-bottle.${ext}`
+}
+function upsellImageUrl(slug: string, packKey: string, ext = 'png') {
+  const n = packKey.replace('pack-', '')
+  return `${SUPABASE_URL}/storage/v1/object/public/images/${slug}/upsells/upsell-pack-${n}.${ext}`
+}
 
 const num = (min = 0) => z.preprocess(v => parseFloat(String(v)), z.number().min(min))
 const numInt = (min = 0) => z.preprocess(v => parseInt(String(v), 10), z.number().int().min(min))
@@ -27,6 +38,7 @@ const packageSchema = z.object({
   badge: z.string().optional(),
   badge_label: z.string().optional(),
   savings_label: z.string().optional(),
+  package_image_url: z.string().optional(),
   checkout_url: z.string().url('Must be a valid URL').or(z.literal('')).optional(),
   sort_order: numInt(0),
   is_active: z.boolean(),
@@ -38,6 +50,7 @@ const upsellSchema = z.object({
   price_each: num(0),
   original_total: num(0),
   discounted_total: num(0),
+  image_url: z.string().optional(),
   upsell_checkout_url: z.string().url('Must be a valid URL').or(z.literal('')).optional(),
 })
 
@@ -46,6 +59,7 @@ type UpsellFormValues = z.infer<typeof upsellSchema>
 
 type Props = {
   siteId: string
+  siteSlug: string
   packKey: 'pack-1' | 'pack-3' | 'pack-5'
   pkg?: Package
   upsell?: Upsell
@@ -57,8 +71,36 @@ const PACK_LABELS: Record<string, string> = {
   'pack-5': '5 Bottles',
 }
 
-export default function PackageForm({ siteId, packKey, pkg, upsell }: Props) {
+// Small image preview that falls back gracefully
+function ImagePreview({ url, label }: { url: string; label: string }) {
+  const [broken, setBroken] = useState(false)
+  if (!url) return null
+  return (
+    <div className="mt-2 rounded-lg overflow-hidden border bg-gray-50 flex items-center justify-center"
+      style={{ height: 80 }}>
+      {broken ? (
+        <div className="flex flex-col items-center gap-1 text-muted-foreground">
+          <ImageIcon size={18} />
+          <span className="text-xs">Not uploaded yet</span>
+        </div>
+      ) : (
+        <img
+          src={url}
+          alt={label}
+          className="h-full w-full object-contain"
+          onError={() => setBroken(true)}
+        />
+      )}
+    </div>
+  )
+}
+
+export default function PackageForm({ siteId, siteSlug, packKey, pkg, upsell }: Props) {
   const [saving, setSaving] = useState(false)
+
+  // Derive default image URLs from convention if not already set
+  const defaultPkgImg = pkg?.package_image_url || pkgImageUrl(siteSlug, packKey)
+  const defaultUpsellImg = upsell?.image_url || upsellImageUrl(siteSlug, packKey)
 
   const {
     register,
@@ -78,6 +120,7 @@ export default function PackageForm({ siteId, packKey, pkg, upsell }: Props) {
       badge: pkg?.badge ?? '',
       badge_label: pkg?.badge_label ?? '',
       savings_label: pkg?.savings_label ?? '',
+      package_image_url: defaultPkgImg,
       checkout_url: pkg?.checkout_url ?? '',
       sort_order: pkg?.sort_order ?? 0,
       is_active: pkg?.is_active ?? true,
@@ -87,6 +130,8 @@ export default function PackageForm({ siteId, packKey, pkg, upsell }: Props) {
   const {
     register: regU,
     handleSubmit: handleSubmitU,
+    setValue: setValueU,
+    watch: watchU,
     formState: { errors: errorsU },
   } = useForm<UpsellFormValues>({
     resolver: zodResolver(upsellSchema) as Resolver<UpsellFormValues>,
@@ -96,6 +141,7 @@ export default function PackageForm({ siteId, packKey, pkg, upsell }: Props) {
       price_each: upsell?.price_each ?? 0,
       original_total: upsell?.original_total ?? 0,
       discounted_total: upsell?.discounted_total ?? 0,
+      image_url: defaultUpsellImg,
       upsell_checkout_url: upsell?.upsell_checkout_url ?? '',
     },
   })
@@ -139,6 +185,8 @@ export default function PackageForm({ siteId, packKey, pkg, upsell }: Props) {
   const perBottle = watch('per_bottle')
   const freeShipping = watch('free_shipping')
   const isActive = watch('is_active')
+  const pkgImgUrl = watch('package_image_url') ?? ''
+  const upsellImgUrl = watchU('image_url') ?? ''
 
   return (
     <div className="space-y-4">
@@ -152,6 +200,26 @@ export default function PackageForm({ siteId, packKey, pkg, upsell }: Props) {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSavePackage)} className="space-y-3">
+
+            {/* Package image */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Package Image</Label>
+                <button
+                  type="button"
+                  onClick={() => setValue('package_image_url', pkgImageUrl(siteSlug, packKey))}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  title="Reset to storage convention URL">
+                  <RefreshCw size={10} /> Reset to default
+                </button>
+              </div>
+              <Input {...register('package_image_url')} placeholder={pkgImageUrl(siteSlug, packKey)} className="h-8 text-xs font-mono" />
+              <ImagePreview url={pkgImgUrl} label={`${PACK_LABELS[packKey]} package`} />
+              <p className="text-xs text-muted-foreground">
+                Storage path: <span className="font-mono">{siteSlug}/packages/pack-{packKey.replace('pack-','')}-bottle.png</span>
+              </p>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Label</Label>
@@ -238,6 +306,26 @@ export default function PackageForm({ siteId, packKey, pkg, upsell }: Props) {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmitU(onSaveUpsell)} className="space-y-3">
+
+            {/* Upsell image */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Upsell Image</Label>
+                <button
+                  type="button"
+                  onClick={() => setValueU('image_url', upsellImageUrl(siteSlug, packKey))}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  title="Reset to storage convention URL">
+                  <RefreshCw size={10} /> Reset to default
+                </button>
+              </div>
+              <Input {...regU('image_url')} placeholder={upsellImageUrl(siteSlug, packKey)} className="h-8 text-xs font-mono" />
+              <ImagePreview url={upsellImgUrl} label={`${PACK_LABELS[packKey]} upsell`} />
+              <p className="text-xs text-muted-foreground">
+                Storage path: <span className="font-mono">{siteSlug}/upsells/upsell-pack-{packKey.replace('pack-','')}.png</span>
+              </p>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Bottles</Label>

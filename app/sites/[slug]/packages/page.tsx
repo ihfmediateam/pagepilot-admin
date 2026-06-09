@@ -62,6 +62,7 @@ export default async function PackagesPage({ params }: Props) {
           <PackageForm
             key={key}
             siteId={site.id}
+            siteSlug={slug}
             packKey={key}
             pkg={getPkg(key)}
             upsell={getUpsell(key)}
