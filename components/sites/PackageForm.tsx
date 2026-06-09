@@ -5,7 +5,6 @@ import { useForm, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import type { Package, Upsell } from '@/lib/types'
-import { upsertPackage, upsertUpsell } from '@/lib/actions/packages'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -103,27 +102,37 @@ export default function PackageForm({ siteId, packKey, pkg, upsell }: Props) {
 
   async function onSavePackage(data: PackageFormValues) {
     setSaving(true)
-    const result = await upsertPackage({
-      ...(pkg?.id ? { id: pkg.id } : {}),
-      site_id: siteId,
-      pack_key: packKey,
-      ...data,
+    const res = await fetch('/api/packages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...(pkg?.id ? { id: pkg.id } : {}),
+        site_id: siteId,
+        pack_key: packKey,
+        ...data,
+      }),
     })
+    const result = await res.json()
     setSaving(false)
-    if (result.error) toast.error('Save failed', { description: result.error })
+    if (!res.ok) toast.error('Save failed', { description: result.error })
     else toast.success(`${PACK_LABELS[packKey]} package saved!`)
   }
 
   async function onSaveUpsell(data: UpsellFormValues) {
     setSaving(true)
-    const result = await upsertUpsell({
-      ...(upsell?.id ? { id: upsell.id } : {}),
-      site_id: siteId,
-      pack_key: packKey,
-      ...data,
+    const res = await fetch('/api/upsells', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...(upsell?.id ? { id: upsell.id } : {}),
+        site_id: siteId,
+        pack_key: packKey,
+        ...data,
+      }),
     })
+    const result = await res.json()
     setSaving(false)
-    if (result.error) toast.error('Upsell save failed', { description: result.error })
+    if (!res.ok) toast.error('Upsell save failed', { description: result.error })
     else toast.success(`${PACK_LABELS[packKey]} upsell saved!`)
   }
 

@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -48,19 +47,24 @@ export default function NewSitePage() {
     setErrors({})
     setLoading(true)
 
-    const supabase = createClient()
-    const { error } = await supabase.from('sites').insert([{
-      product_name: form.product_name,
-      slug: form.slug,
-      github_repo: form.github_repo,
-      gtm_id: form.gtm_id || null,
-      ga_id: form.ga_id || null,
-      is_active: true,
-    }])
+    const res = await fetch('/api/sites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        product_name: form.product_name,
+        slug: form.slug,
+        github_repo: form.github_repo,
+        gtm_id: form.gtm_id || null,
+        ga_id: form.ga_id || null,
+        is_active: true,
+      }),
+    })
 
+    const data = await res.json()
     setLoading(false)
-    if (error) {
-      toast.error('Failed to create site', { description: error.message })
+
+    if (!res.ok) {
+      toast.error('Failed to create site', { description: data.error })
     } else {
       toast.success(`${form.product_name} created!`)
       router.push(`/sites/${form.slug}/packages`)

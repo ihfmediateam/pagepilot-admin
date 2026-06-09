@@ -5,7 +5,6 @@ import { useForm, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import type { Site } from '@/lib/types'
-import { updateSite } from '@/lib/actions/sites'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -43,9 +42,14 @@ export default function SiteSettingsForm({ site }: { site: Site }) {
 
   async function onSubmit(data: FormValues) {
     setSaving(true)
-    const result = await updateSite(site.id, data)
+    const res = await fetch(`/api/sites/${site.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+    const result = await res.json()
     setSaving(false)
-    if (result?.error) toast.error('Save failed', { description: result.error })
+    if (!res.ok) toast.error('Save failed', { description: result.error })
     else toast.success('Settings saved!')
   }
 
