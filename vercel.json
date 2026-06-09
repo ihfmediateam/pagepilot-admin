@@ -1,11 +1,5 @@
 {
   "framework": "nextjs",
   "buildCommand": "npm run build",
-  "installCommand": "npm install",
-  "env": {
-    "NEXT_PUBLIC_SUPABASE_URL": "@pagepilot_supabase_url",
-    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "@pagepilot_supabase_anon_key",
-    "SUPABASE_SERVICE_ROLE_KEY": "@pagepilot_supabase_service_role_key",
-    "GITHUB_TOKEN": "@pagepilot_github_token"
-  }
+  "installCommand": "npm install"
 }
