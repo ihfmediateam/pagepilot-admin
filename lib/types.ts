@@ -17,12 +17,10 @@ export type Package = {
   label: string
   supply: string
   price: number
-  list_price: number
+  list_price: number | null
   per_bottle: boolean
   free_shipping: boolean
   badge: string
-  badge_label: string
-  savings_label: string
   package_image_url: string
   checkout_url: string
   sort_order: number

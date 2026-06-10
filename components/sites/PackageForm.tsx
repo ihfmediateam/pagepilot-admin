@@ -36,8 +36,6 @@ const packageSchema = z.object({
   per_bottle: z.boolean(),
   free_shipping: z.boolean(),
   badge: z.string().optional(),
-  badge_label: z.string().optional(),
-  savings_label: z.string().optional(),
   package_image_url: z.string().optional(),
   checkout_url: z.string().url('Must be a valid URL').or(z.literal('')).optional(),
   sort_order: numInt(0),
@@ -118,8 +116,6 @@ export default function PackageForm({ siteId, siteSlug, packKey, pkg, upsell }: 
       per_bottle: pkg?.per_bottle ?? false,
       free_shipping: pkg?.free_shipping ?? false,
       badge: pkg?.badge ?? '',
-      badge_label: pkg?.badge_label ?? '',
-      savings_label: pkg?.savings_label ?? '',
       package_image_url: defaultPkgImg,
       checkout_url: pkg?.checkout_url ?? '',
       sort_order: pkg?.sort_order ?? 0,
@@ -250,19 +246,9 @@ export default function PackageForm({ siteId, siteSlug, packKey, pkg, upsell }: 
               {errors.checkout_url && <p className="text-xs text-destructive">{errors.checkout_url.message}</p>}
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">Badge</Label>
-                <Input {...register('badge')} placeholder="MOST POPULAR" className="h-8 text-sm" />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Badge Label</Label>
-                <Input {...register('badge_label')} placeholder="3 Month SUPPLY" className="h-8 text-sm" />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Savings Label</Label>
-                <Input {...register('savings_label')} placeholder="Save $75" className="h-8 text-sm" />
-              </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Badge</Label>
+              <Input {...register('badge')} placeholder="MOST POPULAR - SAVE $75" className="h-8 text-sm" />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
