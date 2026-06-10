@@ -11,7 +11,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { toast } from 'sonner'
-import { Loader2, Save, Package as PackageIcon, TrendingUp, ImageIcon, RefreshCw } from 'lucide-react'
+import { Loader2, Save, Package as PackageIcon, TrendingUp, RefreshCw } from 'lucide-react'
+// ImagePreview replaced by ImageUploader component
+import ImageUploader from './ImageUploader'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
 
@@ -69,29 +71,6 @@ const PACK_LABELS: Record<string, string> = {
   'pack-5': '5 Bottles',
 }
 
-// Small image preview that falls back gracefully
-function ImagePreview({ url, label }: { url: string; label: string }) {
-  const [broken, setBroken] = useState(false)
-  if (!url) return null
-  return (
-    <div className="mt-2 rounded-lg overflow-hidden border bg-gray-50 flex items-center justify-center"
-      style={{ height: 80 }}>
-      {broken ? (
-        <div className="flex flex-col items-center gap-1 text-muted-foreground">
-          <ImageIcon size={18} />
-          <span className="text-xs">Not uploaded yet</span>
-        </div>
-      ) : (
-        <img
-          src={url}
-          alt={label}
-          className="h-full w-full object-contain"
-          onError={() => setBroken(true)}
-        />
-      )}
-    </div>
-  )
-}
 
 export default function PackageForm({ siteId, siteSlug, packKey, pkg, upsell }: Props) {
   const [saving, setSaving] = useState(false)
@@ -206,13 +185,19 @@ export default function PackageForm({ siteId, siteSlug, packKey, pkg, upsell }: 
                   onClick={() => setValue('package_image_url', pkgImageUrl(siteSlug, packKey))}
                   className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                   title="Reset to storage convention URL">
-                  <RefreshCw size={10} /> Reset to default
+                  <RefreshCw size={10} /> Reset URL
                 </button>
               </div>
-              <Input {...register('package_image_url')} placeholder={pkgImageUrl(siteSlug, packKey)} className="h-8 text-xs font-mono" />
-              <ImagePreview url={pkgImgUrl} label={`${PACK_LABELS[packKey]} package`} />
+              <ImageUploader
+                currentUrl={pkgImgUrl}
+                folder={`${siteSlug}/packages`}
+                filename={`pack-${packKey.replace('pack-','')}-bottle`}
+                onUploaded={(url) => setValue('package_image_url', url)}
+                label="Upload Package Image"
+              />
+              <Input {...register('package_image_url')} className="h-7 text-xs font-mono mt-1" />
               <p className="text-xs text-muted-foreground">
-                Storage path: <span className="font-mono">{siteSlug}/packages/pack-{packKey.replace('pack-','')}-bottle.png</span>
+                Path: <span className="font-mono">{siteSlug}/packages/pack-{packKey.replace('pack-','')}-bottle.{'{ext}'}</span>
               </p>
             </div>
 
@@ -302,13 +287,19 @@ export default function PackageForm({ siteId, siteSlug, packKey, pkg, upsell }: 
                   onClick={() => setValueU('image_url', upsellImageUrl(siteSlug, packKey))}
                   className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                   title="Reset to storage convention URL">
-                  <RefreshCw size={10} /> Reset to default
+                  <RefreshCw size={10} /> Reset URL
                 </button>
               </div>
-              <Input {...regU('image_url')} placeholder={upsellImageUrl(siteSlug, packKey)} className="h-8 text-xs font-mono" />
-              <ImagePreview url={upsellImgUrl} label={`${PACK_LABELS[packKey]} upsell`} />
+              <ImageUploader
+                currentUrl={upsellImgUrl}
+                folder={`${siteSlug}/upsells`}
+                filename={`upsell-pack-${packKey.replace('pack-','')}`}
+                onUploaded={(url) => setValueU('image_url', url)}
+                label="Upload Upsell Image"
+              />
+              <Input {...regU('image_url')} className="h-7 text-xs font-mono mt-1" />
               <p className="text-xs text-muted-foreground">
-                Storage path: <span className="font-mono">{siteSlug}/upsells/upsell-pack-{packKey.replace('pack-','')}.png</span>
+                Path: <span className="font-mono">{siteSlug}/upsells/upsell-pack-{packKey.replace('pack-','')}.{'{ext}'}</span>
               </p>
             </div>
 
