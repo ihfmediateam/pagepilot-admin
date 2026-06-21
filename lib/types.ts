@@ -45,6 +45,33 @@ export type Upsell = {
   updated_at: string
 }
 
+export type SalePrice = {
+  id: string
+  sale_event_id: string
+  pack_key: string
+  price: number
+  list_price: number | null
+  badge: string | null
+  is_active: boolean
+}
+
+export type SaleEvent = {
+  id: string
+  site_id: string
+  name: string
+  starts_at: string
+  ends_at: string
+  banner_desktop_url: string | null
+  banner_mobile_url: string | null
+  label_text: string | null
+  label_image_desktop_url: string | null
+  label_image_mobile_url: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  sale_prices?: SalePrice[]
+}
+
 export type GitHubRun = {
   id: number
   created_at: string
