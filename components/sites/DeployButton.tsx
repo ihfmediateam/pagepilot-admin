@@ -6,7 +6,7 @@ import { triggerDeploy } from '@/lib/actions/deploy'
 import { toast } from 'sonner'
 import { Rocket, Loader2 } from 'lucide-react'
 
-type Props = { githubRepo: string; size?: 'sm' | 'default' }
+type Props = { githubRepo: string | null; size?: 'sm' | 'default' }
 
 export default function DeployButton({ githubRepo, size = 'default' }: Props) {
   const [deploying, setDeploying] = useState(false)

@@ -64,11 +64,11 @@ export default function DeployHistory({ runs }: Props) {
                   <RunStatus status={run.status} conclusion={run.conclusion} />
                   <div className="min-w-0">
                     <p className="text-sm font-medium truncate">{run.name}</p>
-                    <p className="text-xs text-muted-foreground">
+                    <div className="text-xs text-muted-foreground">
                       {new Date(run.created_at).toLocaleString()} ·{' '}
                       {formatDuration(run.created_at, run.updated_at)}
                       {run.event && <> · <Badge variant="outline" className="text-xs ml-1">{run.event}</Badge></>}
-                    </p>
+                    </div>
                   </div>
                 </div>
                 <a href={run.html_url} target="_blank" rel="noopener noreferrer"

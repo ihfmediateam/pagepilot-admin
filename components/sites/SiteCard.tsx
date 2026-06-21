@@ -77,6 +77,11 @@ export default function SiteCard({ site }: Props) {
               Edit Pricing
             </Button>
           </Link>
+          <Link href={`/sites/${site.slug}/sales`}>
+            <Button size="sm" variant="outline" className="text-xs">
+              <Tag size={12} className="mr-1" />Sales
+            </Button>
+          </Link>
           <Link href={`/sites/${site.slug}/settings`}>
             <Button size="sm" variant="outline" className="text-xs">
               <Settings size={12} className="mr-1" />Settings

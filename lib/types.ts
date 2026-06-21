@@ -2,9 +2,9 @@ export type Site = {
   id: string
   slug: string
   product_name: string
-  github_repo: string
-  gtm_id: string
-  ga_id: string
+  github_repo: string | null
+  gtm_id: string | null
+  ga_id: string | null
   is_active: boolean
   created_at: string
   updated_at: string
