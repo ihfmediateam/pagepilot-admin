@@ -21,6 +21,10 @@ type PackPriceEntry = {
   price: string
   list_price: string
   badge: string
+  // Display overrides — only active during the sale window
+  label_override: string       // e.g. "6 Bottles"
+  supply_override: string      // e.g. "180-Day Supply"
+  image_url_override: string   // alternate pack image URL
   show_upsell: boolean
   upsell_bottles: string
   upsell_title: string
@@ -65,6 +69,9 @@ function blankEntry(pack_key: string, upsell?: Upsell): PackPriceEntry {
     price: '',
     list_price: '',
     badge: '',
+    label_override: '',
+    supply_override: '',
+    image_url_override: '',
     show_upsell: true,
     upsell_bottles: upsell ? String(upsell.bottles) : '',
     upsell_title: upsell?.title ?? '',
@@ -81,6 +88,9 @@ function salePriceToEntry(sp: SalePrice, upsell?: Upsell): PackPriceEntry {
     price: sp.price != null ? String(sp.price) : '',
     list_price: sp.list_price != null ? String(sp.list_price) : '',
     badge: sp.badge ?? '',
+    label_override: sp.label_override ?? '',
+    supply_override: sp.supply_override ?? '',
+    image_url_override: sp.image_url_override ?? '',
     show_upsell: sp.show_upsell ?? true,
     upsell_bottles: sp.upsell_bottles != null ? String(sp.upsell_bottles) : (upsell ? String(upsell.bottles) : ''),
     upsell_title: sp.upsell_title ?? upsell?.title ?? '',
@@ -177,6 +187,9 @@ export default function SaleEventForm({ siteId, siteSlug, sitePackages, siteUpse
         price: numOrNull(e.price),
         list_price: numOrNull(e.list_price),
         badge: e.badge || null,
+        label_override: e.label_override || null,
+        supply_override: e.supply_override || null,
+        image_url_override: e.image_url_override || null,
         is_active: true,
         show_upsell: e.show_upsell,
         upsell_bottles: numOrNull(e.upsell_bottles),
@@ -373,6 +386,43 @@ export default function SaleEventForm({ siteId, siteSlug, sitePackages, siteUpse
                         className="text-muted-foreground hover:text-destructive transition-colors">
                         <X size={14} />
                       </button>
+                    </div>
+
+                    {/* Display overrides — shown only during sale */}
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-[10px]">
+                          Label Override <span className="text-muted-foreground">optional</span>
+                        </Label>
+                        <Input
+                          placeholder={pkg?.label ?? ''}
+                          value={entry.label_override}
+                          onChange={e => updateEntry(entry.pack_key, 'label_override', e.target.value)}
+                          className="h-7 text-xs" />
+                        <p className="text-[9px] text-muted-foreground">e.g. "6 Bottles" during sale</p>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px]">
+                          Supply Override <span className="text-muted-foreground">optional</span>
+                        </Label>
+                        <Input
+                          placeholder={pkg?.supply ?? ''}
+                          value={entry.supply_override}
+                          onChange={e => updateEntry(entry.pack_key, 'supply_override', e.target.value)}
+                          className="h-7 text-xs" />
+                        <p className="text-[9px] text-muted-foreground">e.g. "180-Day Supply"</p>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px]">
+                          Image Override URL <span className="text-muted-foreground">optional</span>
+                        </Label>
+                        <Input
+                          placeholder="https://…"
+                          value={entry.image_url_override}
+                          onChange={e => updateEntry(entry.pack_key, 'image_url_override', e.target.value)}
+                          className="h-7 text-xs font-mono" />
+                        <p className="text-[9px] text-muted-foreground">Different pack image for sale</p>
+                      </div>
                     </div>
 
                     {/* Sale price row */}

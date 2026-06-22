@@ -53,6 +53,10 @@ export type SalePrice = {
   list_price: number | null
   badge: string | null
   is_active: boolean
+  // Display overrides (only applied during the sale window)
+  label_override: string | null       // e.g. "6 Bottles" instead of "5 Bottles"
+  supply_override: string | null      // e.g. "180-Day Supply"
+  image_url_override: string | null   // optional alternate pack image
   show_upsell: boolean
   upsell_bottles: number | null
   upsell_title: string | null
