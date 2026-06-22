@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { ArrowLeft } from 'lucide-react'
 import DeployButton from '@/components/sites/DeployButton'
 import SaleEventForm from '@/components/sites/SaleEventForm'
-import type { SaleEvent } from '@/lib/types'
+import type { Package, SaleEvent, Upsell } from '@/lib/types'
 
 type Props = { params: Promise<{ slug: string }> }
 
@@ -17,13 +17,16 @@ export default async function SalesPage({ params }: Props) {
   const { data: site } = await supabase.from('sites').select('*').eq('slug', slug).single()
   if (!site) notFound()
 
-  // Use service client to read sale_events (they may not be covered by anon RLS yet)
   const admin = createServiceClient()
-  const { data: events } = await admin
-    .from('sale_events')
-    .select('*, sale_prices(*)')
-    .eq('site_id', site.id)
-    .order('starts_at', { ascending: false })
+
+  const [{ data: events }, { data: packages }, { data: upsells }] = await Promise.all([
+    admin.from('sale_events').select('*, sale_prices(*)').eq('site_id', site.id).order('starts_at', { ascending: false }),
+    admin.from('packages').select('*').eq('site_id', site.id).eq('is_active', true).order('sort_order'),
+    admin.from('upsells').select('*').eq('site_id', site.id).eq('is_active', true),
+  ])
+
+  const sitePackages = (packages ?? []) as Package[]
+  const siteUpsells = (upsells ?? []) as Upsell[]
 
   return (
     <div>
@@ -50,7 +53,12 @@ export default async function SalesPage({ params }: Props) {
       </div>
 
       {/* New sale form */}
-      <SaleEventForm siteId={site.id} siteSlug={slug} />
+      <SaleEventForm
+        siteId={site.id}
+        siteSlug={slug}
+        sitePackages={sitePackages}
+        siteUpsells={siteUpsells}
+      />
 
       {/* Existing sale events */}
       {events && events.length > 0 && (
@@ -61,6 +69,8 @@ export default async function SalesPage({ params }: Props) {
               key={event.id}
               siteId={site.id}
               siteSlug={slug}
+              sitePackages={sitePackages}
+              siteUpsells={siteUpsells}
               event={event}
             />
           ))}

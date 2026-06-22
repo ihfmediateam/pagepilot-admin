@@ -5,91 +5,162 @@ import { useForm, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { Loader2, Save, Trash2, Tag, ChevronDown, ChevronUp } from 'lucide-react'
+import { Loader2, Save, Trash2, Tag, ChevronDown, ChevronUp, Plus, X } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import ImageUploader from './ImageUploader'
-import type { SaleEvent } from '@/lib/types'
+import type { Package, SaleEvent, SalePrice, Upsell } from '@/lib/types'
 
-const PACK_KEYS = ['pack-1', 'pack-3', 'pack-5'] as const
-const PACK_LABELS: Record<string, string> = { 'pack-1': '1 Bottle', 'pack-3': '3 Bottles', 'pack-5': '5 Bottles' }
-const num = (min = 0) => z.preprocess(v => parseFloat(String(v)), z.number().min(min))
+// ── Types ────────────────────────────────────────────────────────────────────
 
-const saleSchema = z.object({
-  name: z.string().min(1),
-  starts_at: z.string().min(1),
-  ends_at: z.string().min(1),
+type PackPriceEntry = {
+  pack_key: string
+  price: string
+  list_price: string
+  badge: string
+  show_upsell: boolean
+  upsell_bottles: string
+  upsell_title: string
+  upsell_price_each: string
+  upsell_original_total: string
+  upsell_discounted_total: string
+  upsell_checkout_url: string
+}
+
+// ── Main form schema (metadata only — pack prices managed in state) ──────────
+
+const metaSchema = z.object({
+  name: z.string().min(1, 'Required'),
+  starts_at: z.string().min(1, 'Required'),
+  ends_at: z.string().min(1, 'Required'),
   label_text: z.string().optional(),
   banner_desktop_url: z.string().optional(),
   banner_mobile_url: z.string().optional(),
   label_image_desktop_url: z.string().optional(),
   label_image_mobile_url: z.string().optional(),
   is_active: z.boolean(),
-  // per-pack sale prices
-  'price-pack-1': num(0).optional(),
-  'list_price-pack-1': num(0).optional(),
-  'badge-pack-1': z.string().optional(),
-  'price-pack-3': num(0).optional(),
-  'list_price-pack-3': num(0).optional(),
-  'badge-pack-3': z.string().optional(),
-  'price-pack-5': num(0).optional(),
-  'list_price-pack-5': num(0).optional(),
-  'badge-pack-5': z.string().optional(),
 })
+type MetaValues = z.infer<typeof metaSchema>
 
-type FormValues = z.infer<typeof saleSchema>
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
-// Convert "2025-01-15T10:00" (local datetime-local input) to UTC ISO string
-function localToUtc(local: string): string {
-  return new Date(local).toISOString()
-}
-// Convert UTC ISO to datetime-local value for input
-function utcToLocal(utc: string): string {
+function utcToLocal(utc: string) {
   const d = new Date(utc)
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
 }
+function localToUtc(local: string) {
+  return new Date(local).toISOString()
+}
+function numOrNull(s: string): number | null {
+  const n = parseFloat(s)
+  return isNaN(n) ? null : n
+}
+
+function blankEntry(pack_key: string, upsell?: Upsell): PackPriceEntry {
+  return {
+    pack_key,
+    price: '',
+    list_price: '',
+    badge: '',
+    show_upsell: true,
+    upsell_bottles: upsell ? String(upsell.bottles) : '',
+    upsell_title: upsell?.title ?? '',
+    upsell_price_each: upsell ? String(upsell.price_each) : '',
+    upsell_original_total: upsell ? String(upsell.original_total) : '',
+    upsell_discounted_total: upsell ? String(upsell.discounted_total) : '',
+    upsell_checkout_url: upsell?.upsell_checkout_url ?? '',
+  }
+}
+
+function salePriceToEntry(sp: SalePrice, upsell?: Upsell): PackPriceEntry {
+  return {
+    pack_key: sp.pack_key,
+    price: sp.price != null ? String(sp.price) : '',
+    list_price: sp.list_price != null ? String(sp.list_price) : '',
+    badge: sp.badge ?? '',
+    show_upsell: sp.show_upsell ?? true,
+    upsell_bottles: sp.upsell_bottles != null ? String(sp.upsell_bottles) : (upsell ? String(upsell.bottles) : ''),
+    upsell_title: sp.upsell_title ?? upsell?.title ?? '',
+    upsell_price_each: sp.upsell_price_each != null ? String(sp.upsell_price_each) : (upsell ? String(upsell.price_each) : ''),
+    upsell_original_total: sp.upsell_original_total != null ? String(sp.upsell_original_total) : (upsell ? String(upsell.original_total) : ''),
+    upsell_discounted_total: sp.upsell_discounted_total != null ? String(sp.upsell_discounted_total) : (upsell ? String(upsell.discounted_total) : ''),
+    upsell_checkout_url: sp.upsell_checkout_url ?? upsell?.upsell_checkout_url ?? '',
+  }
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
 
 type Props = {
   siteId: string
   siteSlug: string
+  sitePackages: Package[]
+  siteUpsells: Upsell[]
   event?: SaleEvent
 }
 
-export default function SaleEventForm({ siteId, siteSlug, event }: Props) {
+export default function SaleEventForm({ siteId, siteSlug, sitePackages, siteUpsells, event }: Props) {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [collapsed, setCollapsed] = useState(!!event)
 
-  const sp = (key: string, field: 'price' | 'list_price' | 'badge') =>
-    event?.sale_prices?.find(p => p.pack_key === key)?.[field]
+  // All available pack keys from the site's packages
+  const availablePackKeys = sitePackages.map(p => p.pack_key)
+  const upsellByPackKey = Object.fromEntries(siteUpsells.map(u => [u.pack_key, u]))
 
-  const { register, handleSubmit, watch, setValue, formState: { errors } } =
-    useForm<FormValues>({
-      resolver: zodResolver(saleSchema) as Resolver<FormValues>,
-      defaultValues: {
-        name: event?.name ?? '',
-        starts_at: event?.starts_at ? utcToLocal(event.starts_at) : '',
-        ends_at: event?.ends_at ? utcToLocal(event.ends_at) : '',
-        label_text: event?.label_text ?? '',
-        banner_desktop_url: event?.banner_desktop_url ?? '',
-        banner_mobile_url: event?.banner_mobile_url ?? '',
-        label_image_desktop_url: event?.label_image_desktop_url ?? '',
-        label_image_mobile_url: event?.label_image_mobile_url ?? '',
-        is_active: event?.is_active ?? true,
-        'price-pack-1': (sp('pack-1', 'price') as number | undefined) ?? undefined,
-        'list_price-pack-1': (sp('pack-1', 'list_price') as number | null | undefined) ?? undefined,
-        'badge-pack-1': (sp('pack-1', 'badge') as string | null | undefined) ?? '',
-        'price-pack-3': (sp('pack-3', 'price') as number | undefined) ?? undefined,
-        'list_price-pack-3': (sp('pack-3', 'list_price') as number | null | undefined) ?? undefined,
-        'badge-pack-3': (sp('pack-3', 'badge') as string | null | undefined) ?? '',
-        'price-pack-5': (sp('pack-5', 'price') as number | undefined) ?? undefined,
-        'list_price-pack-5': (sp('pack-5', 'list_price') as number | null | undefined) ?? undefined,
-        'badge-pack-5': (sp('pack-5', 'badge') as string | null | undefined) ?? '',
-      },
+  // Pack price entries — initialised from existing sale_prices or blank
+  const [packEntries, setPackEntries] = useState<PackPriceEntry[]>(() => {
+    if (event?.sale_prices && event.sale_prices.length > 0) {
+      return event.sale_prices.map(sp =>
+        salePriceToEntry(sp as SalePrice, upsellByPackKey[sp.pack_key])
+      )
+    }
+    // Default: include all site packages
+    return availablePackKeys.map(k => blankEntry(k, upsellByPackKey[k]))
+  })
+
+  // Which packs are included in this sale (user can toggle any on/off)
+  const [includedKeys, setIncludedKeys] = useState<Set<string>>(
+    () => new Set(packEntries.map(e => e.pack_key))
+  )
+
+  function togglePackKey(key: string) {
+    setIncludedKeys(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+        // Ensure entry exists
+        if (!packEntries.find(e => e.pack_key === key)) {
+          setPackEntries(pe => [...pe, blankEntry(key, upsellByPackKey[key])])
+        }
+      }
+      return next
     })
+  }
+
+  function updateEntry(key: string, field: keyof PackPriceEntry, value: string | boolean) {
+    setPackEntries(prev => prev.map(e => e.pack_key === key ? { ...e, [field]: value } : e))
+  }
+
+  // Main metadata form
+  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<MetaValues>({
+    resolver: zodResolver(metaSchema) as Resolver<MetaValues>,
+    defaultValues: {
+      name: event?.name ?? '',
+      starts_at: event?.starts_at ? utcToLocal(event.starts_at) : '',
+      ends_at: event?.ends_at ? utcToLocal(event.ends_at) : '',
+      label_text: event?.label_text ?? '',
+      banner_desktop_url: event?.banner_desktop_url ?? '',
+      banner_mobile_url: event?.banner_mobile_url ?? '',
+      label_image_desktop_url: event?.label_image_desktop_url ?? '',
+      label_image_mobile_url: event?.label_image_mobile_url ?? '',
+      is_active: event?.is_active ?? true,
+    },
+  })
 
   const isActive = watch('is_active')
   const bannerDesktop = watch('banner_desktop_url') ?? ''
@@ -97,30 +168,38 @@ export default function SaleEventForm({ siteId, siteSlug, event }: Props) {
   const labelDesktop = watch('label_image_desktop_url') ?? ''
   const labelMobile = watch('label_image_mobile_url') ?? ''
 
-  async function onSubmit(data: FormValues) {
+  async function onSubmit(meta: MetaValues) {
     setSaving(true)
     try {
+      const activeEntries = packEntries.filter(e => includedKeys.has(e.pack_key))
+      const sale_prices = activeEntries.map(e => ({
+        pack_key: e.pack_key,
+        price: numOrNull(e.price),
+        list_price: numOrNull(e.list_price),
+        badge: e.badge || null,
+        is_active: true,
+        show_upsell: e.show_upsell,
+        upsell_bottles: numOrNull(e.upsell_bottles),
+        upsell_title: e.upsell_title || null,
+        upsell_price_each: numOrNull(e.upsell_price_each),
+        upsell_original_total: numOrNull(e.upsell_original_total),
+        upsell_discounted_total: numOrNull(e.upsell_discounted_total),
+        upsell_checkout_url: e.upsell_checkout_url || null,
+      }))
+
       const body = {
         ...(event?.id ? { id: event.id } : {}),
         site_id: siteId,
-        name: data.name,
-        starts_at: localToUtc(data.starts_at),
-        ends_at: localToUtc(data.ends_at),
-        label_text: data.label_text || null,
-        banner_desktop_url: data.banner_desktop_url || null,
-        banner_mobile_url: data.banner_mobile_url || null,
-        label_image_desktop_url: data.label_image_desktop_url || null,
-        label_image_mobile_url: data.label_image_mobile_url || null,
-        is_active: data.is_active,
-        sale_prices: PACK_KEYS
-          .filter(k => data[`price-${k}` as keyof FormValues])
-          .map(k => ({
-            pack_key: k,
-            price: data[`price-${k}` as keyof FormValues] as number,
-            list_price: (data[`list_price-${k}` as keyof FormValues] as number | undefined) ?? null,
-            badge: (data[`badge-${k}` as keyof FormValues] as string | undefined) || null,
-            is_active: true,
-          })),
+        name: meta.name,
+        starts_at: localToUtc(meta.starts_at),
+        ends_at: localToUtc(meta.ends_at),
+        label_text: meta.label_text || null,
+        banner_desktop_url: meta.banner_desktop_url || null,
+        banner_mobile_url: meta.banner_mobile_url || null,
+        label_image_desktop_url: meta.label_image_desktop_url || null,
+        label_image_mobile_url: meta.label_image_mobile_url || null,
+        is_active: meta.is_active,
+        sale_prices,
       }
 
       const res = await fetch('/api/sales', {
@@ -155,6 +234,7 @@ export default function SaleEventForm({ siteId, siteSlug, event }: Props) {
   }
 
   const isNew = !event
+  const activeEntries = packEntries.filter(e => includedKeys.has(e.pack_key))
 
   return (
     <Card className={isNew ? 'border-dashed' : ''}>
@@ -172,11 +252,8 @@ export default function SaleEventForm({ siteId, siteSlug, event }: Props) {
             )}
           </CardTitle>
           {!isNew && (
-            <button
-              type="button"
-              onClick={() => setCollapsed(c => !c)}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
+            <button type="button" onClick={() => setCollapsed(c => !c)}
+              className="text-muted-foreground hover:text-foreground transition-colors">
               {collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
             </button>
           )}
@@ -185,8 +262,9 @@ export default function SaleEventForm({ siteId, siteSlug, event }: Props) {
 
       {!collapsed && (
         <CardContent>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            {/* Name + toggle */}
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+
+            {/* Name + active toggle */}
             <div className="flex gap-3 items-end">
               <div className="flex-1 space-y-1">
                 <Label className="text-xs">Sale Name</Label>
@@ -199,23 +277,23 @@ export default function SaleEventForm({ siteId, siteSlug, event }: Props) {
               </div>
             </div>
 
-            {/* Date/time window */}
+            {/* Date window */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label className="text-xs">Starts At (your local time)</Label>
+                <Label className="text-xs">Starts At <span className="text-muted-foreground">(local time)</span></Label>
                 <Input {...register('starts_at')} type="datetime-local" className="h-8 text-xs" />
                 {errors.starts_at && <p className="text-xs text-destructive">{errors.starts_at.message}</p>}
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Ends At (your local time)</Label>
+                <Label className="text-xs">Ends At <span className="text-muted-foreground">(local time)</span></Label>
                 <Input {...register('ends_at')} type="datetime-local" className="h-8 text-xs" />
                 {errors.ends_at && <p className="text-xs text-destructive">{errors.ends_at.message}</p>}
               </div>
             </div>
 
-            {/* Label */}
+            {/* Label text */}
             <div className="space-y-1">
-              <Label className="text-xs">Label Text <span className="text-muted-foreground">(shown if no label image)</span></Label>
+              <Label className="text-xs">Label Text <span className="text-muted-foreground">(shown if no label image is uploaded)</span></Label>
               <Input {...register('label_text')} placeholder="Early Prime Day Sale" className="h-8 text-sm" />
             </div>
 
@@ -223,74 +301,187 @@ export default function SaleEventForm({ siteId, siteSlug, event }: Props) {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Label Image — Desktop</Label>
-                <ImageUploader
-                  currentUrl={labelDesktop}
-                  folder={`${siteSlug}/sales`}
+                <ImageUploader currentUrl={labelDesktop} folder={`${siteSlug}/sales`}
                   filename={`label-desktop-${event?.id ?? 'new'}`}
-                  onUploaded={url => setValue('label_image_desktop_url', url)}
-                  label="Upload Desktop Label"
-                />
+                  onUploaded={url => setValue('label_image_desktop_url', url)} label="Upload Desktop Label" />
                 <Input {...register('label_image_desktop_url')} className="h-7 text-xs font-mono mt-1" />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Label Image — Mobile</Label>
-                <ImageUploader
-                  currentUrl={labelMobile}
-                  folder={`${siteSlug}/sales`}
+                <ImageUploader currentUrl={labelMobile} folder={`${siteSlug}/sales`}
                   filename={`label-mobile-${event?.id ?? 'new'}`}
-                  onUploaded={url => setValue('label_image_mobile_url', url)}
-                  label="Upload Mobile Label"
-                />
+                  onUploaded={url => setValue('label_image_mobile_url', url)} label="Upload Mobile Label" />
                 <Input {...register('label_image_mobile_url')} className="h-7 text-xs font-mono mt-1" />
               </div>
             </div>
 
-            {/* Banner images */}
+            {/* Banners */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Sale Banner — Desktop</Label>
-                <ImageUploader
-                  currentUrl={bannerDesktop}
-                  folder={`${siteSlug}/sales`}
+                <ImageUploader currentUrl={bannerDesktop} folder={`${siteSlug}/sales`}
                   filename={`banner-desktop-${event?.id ?? 'new'}`}
-                  onUploaded={url => setValue('banner_desktop_url', url)}
-                  label="Upload Desktop Banner"
-                />
+                  onUploaded={url => setValue('banner_desktop_url', url)} label="Upload Desktop Banner" />
                 <Input {...register('banner_desktop_url')} className="h-7 text-xs font-mono mt-1" />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Sale Banner — Mobile</Label>
-                <ImageUploader
-                  currentUrl={bannerMobile}
-                  folder={`${siteSlug}/sales`}
+                <ImageUploader currentUrl={bannerMobile} folder={`${siteSlug}/sales`}
                   filename={`banner-mobile-${event?.id ?? 'new'}`}
-                  onUploaded={url => setValue('banner_mobile_url', url)}
-                  label="Upload Mobile Banner"
-                />
+                  onUploaded={url => setValue('banner_mobile_url', url)} label="Upload Mobile Banner" />
                 <Input {...register('banner_mobile_url')} className="h-7 text-xs font-mono mt-1" />
               </div>
             </div>
 
-            {/* Per-pack sale prices */}
-            <div className="space-y-2">
-              <Label className="text-xs font-semibold">Sale Prices <span className="text-muted-foreground font-normal">(leave blank to keep regular price)</span></Label>
-              {PACK_KEYS.map(k => (
-                <div key={k} className="grid grid-cols-3 gap-2 p-3 bg-gray-50 rounded-lg">
-                  <div className="col-span-3 text-xs font-medium text-gray-600 mb-1">{PACK_LABELS[k]}</div>
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">Sale Price ($)</Label>
-                    <Input {...register(`price-${k}` as keyof FormValues)} type="number" step="0.01" className="h-7 text-xs" />
+            {/* ── Pack price entries ───────────────────────────────────────── */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold">Sale Prices per Pack</Label>
+                <p className="text-[10px] text-muted-foreground">Leave price blank to keep regular price</p>
+              </div>
+
+              {/* Toggle which pack keys are included */}
+              <div className="flex flex-wrap gap-2">
+                {availablePackKeys.map(k => {
+                  const pkg = sitePackages.find(p => p.pack_key === k)
+                  const included = includedKeys.has(k)
+                  return (
+                    <button key={k} type="button" onClick={() => togglePackKey(k)}
+                      className={`text-xs px-2.5 py-1 rounded-full border transition-colors font-medium ${
+                        included
+                          ? 'border-[#0F4A35] bg-[#0F4A35] text-white'
+                          : 'border-gray-300 text-gray-500 hover:border-gray-400'
+                      }`}>
+                      {pkg?.label ?? k}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* Entry cards */}
+              {activeEntries.map(entry => {
+                const pkg = sitePackages.find(p => p.pack_key === entry.pack_key)
+                return (
+                  <div key={entry.pack_key} className="border rounded-lg p-4 space-y-3 bg-gray-50">
+                    {/* Pack header */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-gray-700">
+                        {pkg?.label ?? entry.pack_key}
+                        {pkg?.supply && <span className="ml-1.5 font-normal text-muted-foreground">· {pkg.supply}</span>}
+                      </span>
+                      <button type="button" onClick={() => togglePackKey(entry.pack_key)}
+                        className="text-muted-foreground hover:text-destructive transition-colors">
+                        <X size={14} />
+                      </button>
+                    </div>
+
+                    {/* Sale price row */}
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="space-y-1">
+                        <Label className="text-[10px]">Sale Price ($)</Label>
+                        <Input
+                          type="number" step="0.01" placeholder={pkg ? String(pkg.price) : ''}
+                          value={entry.price}
+                          onChange={e => updateEntry(entry.pack_key, 'price', e.target.value)}
+                          className="h-7 text-xs" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px]">List Price ($) <span className="text-muted-foreground">optional</span></Label>
+                        <Input
+                          type="number" step="0.01" placeholder="strikethrough"
+                          value={entry.list_price}
+                          onChange={e => updateEntry(entry.pack_key, 'list_price', e.target.value)}
+                          className="h-7 text-xs" />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-[10px]">Badge <span className="text-muted-foreground">optional</span></Label>
+                        <Input
+                          placeholder="SAVE $144"
+                          value={entry.badge}
+                          onChange={e => updateEntry(entry.pack_key, 'badge', e.target.value)}
+                          className="h-7 text-xs" />
+                      </div>
+                    </div>
+
+                    {/* Upsell section */}
+                    <div className="space-y-2 pt-1 border-t border-dashed">
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={entry.show_upsell}
+                          onCheckedChange={v => updateEntry(entry.pack_key, 'show_upsell', v)}
+                        />
+                        <Label className="text-[10px] font-semibold cursor-pointer">Show Upsell Offer</Label>
+                        {!entry.show_upsell && (
+                          <span className="text-[10px] text-muted-foreground">(upsell modal hidden during this sale)</span>
+                        )}
+                      </div>
+
+                      {entry.show_upsell && (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="space-y-1">
+                              <Label className="text-[10px]">Upsell Bottles</Label>
+                              <Input
+                                type="number"
+                                value={entry.upsell_bottles}
+                                onChange={e => updateEntry(entry.pack_key, 'upsell_bottles', e.target.value)}
+                                className="h-7 text-xs" />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-[10px]">Upsell Title</Label>
+                              <Input
+                                placeholder="Buy 6 Bottles..."
+                                value={entry.upsell_title}
+                                onChange={e => updateEntry(entry.pack_key, 'upsell_title', e.target.value)}
+                                className="h-7 text-xs" />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            <div className="space-y-1">
+                              <Label className="text-[10px]">Price Each ($)</Label>
+                              <Input
+                                type="number" step="0.01"
+                                value={entry.upsell_price_each}
+                                onChange={e => updateEntry(entry.pack_key, 'upsell_price_each', e.target.value)}
+                                className="h-7 text-xs" />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-[10px]">Original Total ($)</Label>
+                              <Input
+                                type="number" step="0.01"
+                                value={entry.upsell_original_total}
+                                onChange={e => updateEntry(entry.pack_key, 'upsell_original_total', e.target.value)}
+                                className="h-7 text-xs" />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-[10px]">Discounted Total ($)</Label>
+                              <Input
+                                type="number" step="0.01"
+                                value={entry.upsell_discounted_total}
+                                onChange={e => updateEntry(entry.pack_key, 'upsell_discounted_total', e.target.value)}
+                                className="h-7 text-xs" />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[10px]">Upsell Checkout URL</Label>
+                            <Input
+                              placeholder="https://checkout.example.com/…"
+                              value={entry.upsell_checkout_url}
+                              onChange={e => updateEntry(entry.pack_key, 'upsell_checkout_url', e.target.value)}
+                              className="h-7 text-xs font-mono" />
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">List Price ($)</Label>
-                    <Input {...register(`list_price-${k}` as keyof FormValues)} type="number" step="0.01" className="h-7 text-xs" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[10px]">Badge</Label>
-                    <Input {...register(`badge-${k}` as keyof FormValues)} placeholder="SAVE $144" className="h-7 text-xs" />
-                  </div>
-                </div>
-              ))}
+                )
+              })}
+
+              {activeEntries.length === 0 && (
+                <p className="text-xs text-muted-foreground text-center py-3 border border-dashed rounded-lg">
+                  No packs selected — toggle packs above to add sale prices
+                </p>
+              )}
             </div>
 
             {/* Actions */}
@@ -308,6 +499,7 @@ export default function SaleEventForm({ siteId, siteSlug, event }: Props) {
                 </Button>
               )}
             </div>
+
           </form>
         </CardContent>
       )}

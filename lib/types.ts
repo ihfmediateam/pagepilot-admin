@@ -53,6 +53,13 @@ export type SalePrice = {
   list_price: number | null
   badge: string | null
   is_active: boolean
+  show_upsell: boolean
+  upsell_bottles: number | null
+  upsell_title: string | null
+  upsell_price_each: number | null
+  upsell_original_total: number | null
+  upsell_discounted_total: number | null
+  upsell_checkout_url: string | null
 }
 
 export type SaleEvent = {
