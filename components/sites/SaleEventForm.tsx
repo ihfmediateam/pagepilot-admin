@@ -414,14 +414,20 @@ export default function SaleEventForm({ siteId, siteSlug, sitePackages, siteUpse
                       </div>
                       <div className="space-y-1">
                         <Label className="text-[10px]">
-                          Image Override URL <span className="text-muted-foreground">optional</span>
+                          Image Override <span className="text-muted-foreground">optional</span>
                         </Label>
+                        <ImageUploader
+                          currentUrl={entry.image_url_override}
+                          folder={`${siteSlug}/sales`}
+                          filename={`img-override-${entry.pack_key}-${event?.id ?? 'new'}`}
+                          onUploaded={url => updateEntry(entry.pack_key, 'image_url_override', url)}
+                          label="Upload Sale Image"
+                        />
                         <Input
-                          placeholder="https://…"
+                          placeholder="or paste URL"
                           value={entry.image_url_override}
                           onChange={e => updateEntry(entry.pack_key, 'image_url_override', e.target.value)}
-                          className="h-7 text-xs font-mono" />
-                        <p className="text-[9px] text-muted-foreground">Different pack image for sale</p>
+                          className="h-7 text-xs font-mono mt-1" />
                       </div>
                     </div>
 

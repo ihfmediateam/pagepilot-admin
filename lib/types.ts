@@ -49,7 +49,7 @@ export type SalePrice = {
   id: string
   sale_event_id: string
   pack_key: string
-  price: number
+  price: number | null
   list_price: number | null
   badge: string | null
   is_active: boolean
