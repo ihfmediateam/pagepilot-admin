@@ -64,6 +64,7 @@ export type SalePrice = {
   upsell_original_total: number | null
   upsell_discounted_total: number | null
   upsell_checkout_url: string | null
+  checkout_url: string | null   // overrides the pack's regular checkout URL during the sale
 }
 
 export type SaleEvent = {

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft } from 'lucide-react'
 import DeployButton from '@/components/sites/DeployButton'
-import SaleEventForm from '@/components/sites/SaleEventForm'
+import SalesManager from '@/components/sites/SalesManager'
 import type { Package, SaleEvent, Upsell } from '@/lib/types'
 
 type Props = { params: Promise<{ slug: string }> }
@@ -24,9 +24,6 @@ export default async function SalesPage({ params }: Props) {
     admin.from('packages').select('*').eq('site_id', site.id).eq('is_active', true).order('sort_order'),
     admin.from('upsells').select('*').eq('site_id', site.id).eq('is_active', true),
   ])
-
-  const sitePackages = (packages ?? []) as Package[]
-  const siteUpsells = (upsells ?? []) as Upsell[]
 
   return (
     <div>
@@ -52,30 +49,13 @@ export default async function SalesPage({ params }: Props) {
         </div>
       </div>
 
-      {/* New sale form */}
-      <SaleEventForm
+      <SalesManager
         siteId={site.id}
         siteSlug={slug}
-        sitePackages={sitePackages}
-        siteUpsells={siteUpsells}
+        sitePackages={(packages ?? []) as Package[]}
+        siteUpsells={(upsells ?? []) as Upsell[]}
+        events={(events ?? []) as SaleEvent[]}
       />
-
-      {/* Existing sale events */}
-      {events && events.length > 0 && (
-        <div className="mt-8 space-y-4">
-          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Existing Sales</h2>
-          {(events as SaleEvent[]).map(event => (
-            <SaleEventForm
-              key={event.id}
-              siteId={site.id}
-              siteSlug={slug}
-              sitePackages={sitePackages}
-              siteUpsells={siteUpsells}
-              event={event}
-            />
-          ))}
-        </div>
-      )}
     </div>
   )
 }

@@ -5,8 +5,9 @@ import { useForm, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
-import { Loader2, Save, Trash2, Tag, ChevronDown, ChevronUp, Plus, X } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Loader2, Save, Trash2, Tag, X, Image, BadgeDollarSign, CalendarClock, ChevronDown, ChevronUp
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -21,10 +22,10 @@ type PackPriceEntry = {
   price: string
   list_price: string
   badge: string
-  // Display overrides — only active during the sale window
-  label_override: string       // e.g. "6 Bottles"
-  supply_override: string      // e.g. "180-Day Supply"
-  image_url_override: string   // alternate pack image URL
+  label_override: string
+  supply_override: string
+  image_url_override: string
+  checkout_url: string         // overrides the pack's regular checkout URL during the sale
   show_upsell: boolean
   upsell_bottles: string
   upsell_title: string
@@ -34,7 +35,7 @@ type PackPriceEntry = {
   upsell_checkout_url: string
 }
 
-// ── Main form schema (metadata only — pack prices managed in state) ──────────
+// ── Schema ───────────────────────────────────────────────────────────────────
 
 const metaSchema = z.object({
   name: z.string().min(1, 'Required'),
@@ -51,27 +52,49 @@ type MetaValues = z.infer<typeof metaSchema>
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function utcToLocal(utc: string) {
+// All sale times are entered and displayed in US Eastern time (EST/EDT).
+// Supabase stores UTC; we convert on read and on save.
+const EST_TZ = 'America/New_York'
+
+function utcToEst(utc: string): string {
+  // Build a "YYYY-MM-DDTHH:mm" string in Eastern time for datetime-local input
   const d = new Date(utc)
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: EST_TZ,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d)
+  const get = (t: string) => parts.find(p => p.type === t)?.value ?? '00'
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`
 }
-function localToUtc(local: string) {
-  return new Date(local).toISOString()
+
+function estToUtc(estLocal: string): string {
+  // estLocal = "YYYY-MM-DDTHH:mm" interpreted as Eastern time → UTC ISO string
+  // We append the IANA tz via Intl trick: parse as if it were UTC offset for EST
+  const [datePart, timePart] = estLocal.split('T')
+  const [year, month, day] = datePart.split('-').map(Number)
+  const [hour, minute] = (timePart ?? '00:00').split(':').map(Number)
+  // Use Date constructor + offset resolved from a reference point in that timezone
+  const probe = new Date(Date.UTC(year, month - 1, day, hour, minute))
+  // Compute the offset for America/New_York at that moment
+  const estStr = new Intl.DateTimeFormat('en-US', {
+    timeZone: EST_TZ, hour: 'numeric', hour12: false,
+    timeZoneName: 'shortOffset',
+  }).format(probe)
+  const offsetMatch = estStr.match(/GMT([+-]\d+(?::\d+)?)/)
+  const offsetHours = offsetMatch ? parseFloat(offsetMatch[1]) : -5
+  const offsetMs = offsetHours * 60 * 60 * 1000
+  return new Date(probe.getTime() - offsetMs).toISOString()
 }
 function numOrNull(s: string): number | null {
   const n = parseFloat(s)
   return isNaN(n) ? null : n
 }
-
 function blankEntry(pack_key: string, upsell?: Upsell): PackPriceEntry {
   return {
-    pack_key,
-    price: '',
-    list_price: '',
-    badge: '',
-    label_override: '',
-    supply_override: '',
-    image_url_override: '',
+    pack_key, price: '', list_price: '', badge: '',
+    label_override: '', supply_override: '', image_url_override: '',
+    checkout_url: '',
     show_upsell: true,
     upsell_bottles: upsell ? String(upsell.bottles) : '',
     upsell_title: upsell?.title ?? '',
@@ -81,7 +104,6 @@ function blankEntry(pack_key: string, upsell?: Upsell): PackPriceEntry {
     upsell_checkout_url: upsell?.upsell_checkout_url ?? '',
   }
 }
-
 function salePriceToEntry(sp: SalePrice, upsell?: Upsell): PackPriceEntry {
   return {
     pack_key: sp.pack_key,
@@ -91,6 +113,7 @@ function salePriceToEntry(sp: SalePrice, upsell?: Upsell): PackPriceEntry {
     label_override: sp.label_override ?? '',
     supply_override: sp.supply_override ?? '',
     image_url_override: sp.image_url_override ?? '',
+    checkout_url: sp.checkout_url ?? '',
     show_upsell: sp.show_upsell ?? true,
     upsell_bottles: sp.upsell_bottles != null ? String(sp.upsell_bottles) : (upsell ? String(upsell.bottles) : ''),
     upsell_title: sp.upsell_title ?? upsell?.title ?? '',
@@ -101,7 +124,32 @@ function salePriceToEntry(sp: SalePrice, upsell?: Upsell): PackPriceEntry {
   }
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// ── Section accordion ────────────────────────────────────────────────────────
+
+function Section({ title, icon, children, defaultOpen = true }: {
+  title: string; icon: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean
+}) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div className="border rounded-lg overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+      style={{ background: 'linear-gradient(to right, #f8fffe, #f9fafb)' }}
+      >
+        <div className="flex items-center gap-2 text-sm font-bold text-gray-800">
+          {icon}
+          {title}
+        </div>
+        {open ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+      </button>
+      {open && <div className="p-4 space-y-4">{children}</div>}
+    </div>
+  )
+}
+
+// ── Props ─────────────────────────────────────────────────────────────────────
 
 type Props = {
   siteId: string
@@ -109,29 +157,29 @@ type Props = {
   sitePackages: Package[]
   siteUpsells: Upsell[]
   event?: SaleEvent
+  onSaved?: (event: SaleEvent) => void
+  onDeleted?: () => void
 }
 
-export default function SaleEventForm({ siteId, siteSlug, sitePackages, siteUpsells, event }: Props) {
+// ── Component ─────────────────────────────────────────────────────────────────
+
+export default function SaleEventForm({
+  siteId, siteSlug, sitePackages, siteUpsells, event, onSaved, onDeleted
+}: Props) {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [collapsed, setCollapsed] = useState(!!event)
+  const isNew = !event
 
-  // All available pack keys from the site's packages
   const availablePackKeys = sitePackages.map(p => p.pack_key)
   const upsellByPackKey = Object.fromEntries(siteUpsells.map(u => [u.pack_key, u]))
 
-  // Pack price entries — initialised from existing sale_prices or blank
   const [packEntries, setPackEntries] = useState<PackPriceEntry[]>(() => {
     if (event?.sale_prices && event.sale_prices.length > 0) {
-      return event.sale_prices.map(sp =>
-        salePriceToEntry(sp as SalePrice, upsellByPackKey[sp.pack_key])
-      )
+      return event.sale_prices.map(sp => salePriceToEntry(sp as SalePrice, upsellByPackKey[sp.pack_key]))
     }
-    // Default: include all site packages
     return availablePackKeys.map(k => blankEntry(k, upsellByPackKey[k]))
   })
 
-  // Which packs are included in this sale (user can toggle any on/off)
   const [includedKeys, setIncludedKeys] = useState<Set<string>>(
     () => new Set(packEntries.map(e => e.pack_key))
   )
@@ -143,7 +191,6 @@ export default function SaleEventForm({ siteId, siteSlug, sitePackages, siteUpse
         next.delete(key)
       } else {
         next.add(key)
-        // Ensure entry exists
         if (!packEntries.find(e => e.pack_key === key)) {
           setPackEntries(pe => [...pe, blankEntry(key, upsellByPackKey[key])])
         }
@@ -156,13 +203,12 @@ export default function SaleEventForm({ siteId, siteSlug, sitePackages, siteUpse
     setPackEntries(prev => prev.map(e => e.pack_key === key ? { ...e, [field]: value } : e))
   }
 
-  // Main metadata form
   const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<MetaValues>({
     resolver: zodResolver(metaSchema) as Resolver<MetaValues>,
     defaultValues: {
       name: event?.name ?? '',
-      starts_at: event?.starts_at ? utcToLocal(event.starts_at) : '',
-      ends_at: event?.ends_at ? utcToLocal(event.ends_at) : '',
+      starts_at: event?.starts_at ? utcToEst(event.starts_at) : '',
+      ends_at: event?.ends_at ? utcToEst(event.ends_at) : '',
       label_text: event?.label_text ?? '',
       banner_desktop_url: event?.banner_desktop_url ?? '',
       banner_mobile_url: event?.banner_mobile_url ?? '',
@@ -182,30 +228,37 @@ export default function SaleEventForm({ siteId, siteSlug, sitePackages, siteUpse
     setSaving(true)
     try {
       const activeEntries = packEntries.filter(e => includedKeys.has(e.pack_key))
-      const sale_prices = activeEntries.map(e => ({
-        pack_key: e.pack_key,
-        price: numOrNull(e.price),
-        list_price: numOrNull(e.list_price),
-        badge: e.badge || null,
-        label_override: e.label_override || null,
-        supply_override: e.supply_override || null,
-        image_url_override: e.image_url_override || null,
-        is_active: true,
-        show_upsell: e.show_upsell,
-        upsell_bottles: numOrNull(e.upsell_bottles),
-        upsell_title: e.upsell_title || null,
-        upsell_price_each: numOrNull(e.upsell_price_each),
-        upsell_original_total: numOrNull(e.upsell_original_total),
-        upsell_discounted_total: numOrNull(e.upsell_discounted_total),
-        upsell_checkout_url: e.upsell_checkout_url || null,
-      }))
+      const sale_prices = activeEntries.map(e => {
+        const pkg = sitePackages.find(p => p.pack_key === e.pack_key)
+        const upsell = upsellByPackKey[e.pack_key]
+        return {
+          pack_key: e.pack_key,
+          // Blank → fall back to the placeholder value (regular package price)
+          price: numOrNull(e.price) ?? (pkg?.price ?? null),
+          list_price: numOrNull(e.list_price) ?? (pkg?.list_price ?? null),
+          badge: e.badge || pkg?.badge || null,
+          label_override: e.label_override || null,
+          supply_override: e.supply_override || null,
+          image_url_override: e.image_url_override || null,
+          checkout_url: e.checkout_url || pkg?.checkout_url || null,
+          is_active: true,
+          show_upsell: e.show_upsell,
+          // Blank upsell fields → fall back to the existing upsell row values
+          upsell_bottles: numOrNull(e.upsell_bottles) ?? (upsell?.bottles ?? null),
+          upsell_title: e.upsell_title || upsell?.title || null,
+          upsell_price_each: numOrNull(e.upsell_price_each) ?? (upsell?.price_each ?? null),
+          upsell_original_total: numOrNull(e.upsell_original_total) ?? (upsell?.original_total ?? null),
+          upsell_discounted_total: numOrNull(e.upsell_discounted_total) ?? (upsell?.discounted_total ?? null),
+          upsell_checkout_url: e.upsell_checkout_url || upsell?.upsell_checkout_url || null,
+        }
+      })
 
       const body = {
         ...(event?.id ? { id: event.id } : {}),
         site_id: siteId,
         name: meta.name,
-        starts_at: localToUtc(meta.starts_at),
-        ends_at: localToUtc(meta.ends_at),
+        starts_at: estToUtc(meta.starts_at),
+        ends_at: estToUtc(meta.ends_at),
         label_text: meta.label_text || null,
         banner_desktop_url: meta.banner_desktop_url || null,
         banner_mobile_url: meta.banner_mobile_url || null,
@@ -221,10 +274,11 @@ export default function SaleEventForm({ siteId, siteSlug, sitePackages, siteUpse
         body: JSON.stringify(body),
       })
       const result = await res.json()
-      if (!res.ok) toast.error('Save failed', { description: result.error })
-      else {
-        toast.success(event ? 'Sale updated!' : 'Sale event created!')
-        if (!event) window.location.reload()
+      if (!res.ok) {
+        toast.error('Save failed', { description: result.error })
+      } else {
+        toast.success(isNew ? 'Sale event created!' : 'Sale updated!')
+        onSaved?.(result.event)
       }
     } finally {
       setSaving(false)
@@ -239,255 +293,301 @@ export default function SaleEventForm({ siteId, siteSlug, sitePackages, siteUpse
     setDeleting(false)
     if (res.ok) {
       toast.success('Sale deleted')
-      window.location.reload()
+      onDeleted?.()
     } else {
       const r = await res.json()
       toast.error('Delete failed', { description: r.error })
     }
   }
 
-  const isNew = !event
   const activeEntries = packEntries.filter(e => includedKeys.has(e.pack_key))
 
   return (
-    <Card className={isNew ? 'border-dashed' : ''}>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Tag size={14} style={{ color: '#0F4A35' }} />
-            {isNew ? 'New Sale Event' : event.name}
-            {!isNew && (
-              <span className={`ml-1 text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                event.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-              }`}>
-                {event.is_active ? 'Active' : 'Inactive'}
-              </span>
-            )}
-          </CardTitle>
-          {!isNew && (
-            <button type="button" onClick={() => setCollapsed(c => !c)}
-              className="text-muted-foreground hover:text-foreground transition-colors">
-              {collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-            </button>
-          )}
+    <div className="flex flex-col h-full">
+
+      {/* ── Panel header ──────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: '#0F4A35' }}>
+            <Tag size={13} className="text-white" />
+          </div>
+          <div>
+            <h2 className="text-sm font-bold text-gray-900">
+              {isNew ? 'New Sale Event' : event.name}
+            </h2>
+            <p className="text-[10px] text-gray-400">
+              {isNew ? 'Configure a new sale window' : `Event · ${event.id.slice(0, 8)}…`}
+            </p>
+          </div>
         </div>
-      </CardHeader>
 
-      {!collapsed && (
-        <CardContent>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+        {!isNew && (
+          <Button
+            type="button" size="sm" variant="outline"
+            className="text-destructive border-destructive/30 hover:bg-destructive/5 h-7 px-2.5 text-xs gap-1.5"
+            onClick={onDelete} disabled={deleting}
+          >
+            {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+            Delete
+          </Button>
+        )}
+      </div>
 
-            {/* Name + active toggle */}
-            <div className="flex gap-3 items-end">
-              <div className="flex-1 space-y-1">
-                <Label className="text-xs">Sale Name</Label>
-                <Input {...register('name')} placeholder="Early Prime Day 2026" className="h-8 text-sm" />
-                {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
-              </div>
-              <div className="flex items-center gap-2 pb-1">
-                <Switch checked={isActive} onCheckedChange={v => setValue('is_active', v)} />
-                <Label className="text-xs">Active</Label>
-              </div>
+      {/* ── Form ──────────────────────────────────────────────────────────── */}
+      <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-3 flex-1">
+
+        {/* Section 1: Event Details */}
+        <Section title="Event Details" icon={<CalendarClock size={14} className="text-[#0F4A35]" />}>
+
+          {/* Name + active toggle */}
+          <div className="flex gap-3 items-end">
+            <div className="flex-1 space-y-1">
+              <Label className="text-xs font-medium">Sale Name</Label>
+              <Input {...register('name')} placeholder="Early Prime Day 2026" className="h-9 text-sm" />
+              {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
             </div>
-
-            {/* Date window */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">Starts At <span className="text-muted-foreground">(local time)</span></Label>
-                <Input {...register('starts_at')} type="datetime-local" className="h-8 text-xs" />
-                {errors.starts_at && <p className="text-xs text-destructive">{errors.starts_at.message}</p>}
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Ends At <span className="text-muted-foreground">(local time)</span></Label>
-                <Input {...register('ends_at')} type="datetime-local" className="h-8 text-xs" />
-                {errors.ends_at && <p className="text-xs text-destructive">{errors.ends_at.message}</p>}
-              </div>
+            <div className="flex items-center gap-2 pb-1.5 shrink-0">
+              <Switch checked={isActive} onCheckedChange={v => setValue('is_active', v)} id="is_active" />
+              <Label htmlFor="is_active" className="text-xs cursor-pointer select-none">
+                {isActive ? (
+                  <span className="text-green-700 font-semibold">Active</span>
+                ) : (
+                  <span className="text-gray-400">Inactive</span>
+                )}
+              </Label>
             </div>
+          </div>
 
-            {/* Label text */}
+          {/* Date window */}
+          <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label className="text-xs">Label Text <span className="text-muted-foreground">(shown if no label image is uploaded)</span></Label>
-              <Input {...register('label_text')} placeholder="Early Prime Day Sale" className="h-8 text-sm" />
+              <Label className="text-xs font-medium">
+                Starts At <span className="text-gray-400 font-normal">(EST)</span>
+              </Label>
+              <Input {...register('starts_at')} type="datetime-local" className="h-9 text-xs" />
+              {errors.starts_at && <p className="text-xs text-destructive">{errors.starts_at.message}</p>}
             </div>
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">
+                Ends At <span className="text-gray-400 font-normal">(EST)</span>
+              </Label>
+              <Input {...register('ends_at')} type="datetime-local" className="h-9 text-xs" />
+              {errors.ends_at && <p className="text-xs text-destructive">{errors.ends_at.message}</p>}
+            </div>
+          </div>
 
-            {/* Label images */}
+        </Section>
+
+        {/* Section 2: Creative Assets */}
+        <Section title="Creative Assets" icon={<Image size={14} className="text-[#0F4A35]" />} defaultOpen={false}>
+
+          {/* Label text */}
+          <div className="space-y-1">
+            <Label className="text-xs font-medium">
+              Label Text <span className="text-gray-400 font-normal">— shown if no label image is uploaded</span>
+            </Label>
+            <Input {...register('label_text')} placeholder="Early Prime Day Sale" className="h-9 text-sm" />
+          </div>
+
+          {/* Label images */}
+          <div>
+            <Label className="text-xs font-medium block mb-2">Label Images</Label>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">Label Image — Desktop</Label>
+              <div className="space-y-1.5">
+                <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wide">Desktop</p>
                 <ImageUploader currentUrl={labelDesktop} folder={`${siteSlug}/sales`}
                   filename={`label-desktop-${event?.id ?? 'new'}`}
-                  onUploaded={url => setValue('label_image_desktop_url', url)} label="Upload Desktop Label" />
-                <Input {...register('label_image_desktop_url')} className="h-7 text-xs font-mono mt-1" />
+                  onUploaded={url => setValue('label_image_desktop_url', url)} label="Upload" />
+                <Input {...register('label_image_desktop_url')} placeholder="or paste URL"
+                  className="h-7 text-[10px] font-mono" />
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Label Image — Mobile</Label>
+              <div className="space-y-1.5">
+                <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wide">Mobile</p>
                 <ImageUploader currentUrl={labelMobile} folder={`${siteSlug}/sales`}
                   filename={`label-mobile-${event?.id ?? 'new'}`}
-                  onUploaded={url => setValue('label_image_mobile_url', url)} label="Upload Mobile Label" />
-                <Input {...register('label_image_mobile_url')} className="h-7 text-xs font-mono mt-1" />
+                  onUploaded={url => setValue('label_image_mobile_url', url)} label="Upload" />
+                <Input {...register('label_image_mobile_url')} placeholder="or paste URL"
+                  className="h-7 text-[10px] font-mono" />
               </div>
             </div>
+          </div>
 
-            {/* Banners */}
+          {/* Sale banners */}
+          <div>
+            <Label className="text-xs font-medium block mb-2">Sale Banners</Label>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">Sale Banner — Desktop</Label>
+              <div className="space-y-1.5">
+                <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wide">Desktop</p>
                 <ImageUploader currentUrl={bannerDesktop} folder={`${siteSlug}/sales`}
                   filename={`banner-desktop-${event?.id ?? 'new'}`}
-                  onUploaded={url => setValue('banner_desktop_url', url)} label="Upload Desktop Banner" />
-                <Input {...register('banner_desktop_url')} className="h-7 text-xs font-mono mt-1" />
+                  onUploaded={url => setValue('banner_desktop_url', url)} label="Upload" />
+                <Input {...register('banner_desktop_url')} placeholder="or paste URL"
+                  className="h-7 text-[10px] font-mono" />
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Sale Banner — Mobile</Label>
+              <div className="space-y-1.5">
+                <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wide">Mobile</p>
                 <ImageUploader currentUrl={bannerMobile} folder={`${siteSlug}/sales`}
                   filename={`banner-mobile-${event?.id ?? 'new'}`}
-                  onUploaded={url => setValue('banner_mobile_url', url)} label="Upload Mobile Banner" />
-                <Input {...register('banner_mobile_url')} className="h-7 text-xs font-mono mt-1" />
+                  onUploaded={url => setValue('banner_mobile_url', url)} label="Upload" />
+                <Input {...register('banner_mobile_url')} placeholder="or paste URL"
+                  className="h-7 text-[10px] font-mono" />
               </div>
             </div>
+          </div>
 
-            {/* ── Pack price entries ───────────────────────────────────────── */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="text-xs font-semibold">Sale Prices per Pack</Label>
-                <p className="text-[10px] text-muted-foreground">Leave price blank to keep regular price</p>
-              </div>
+        </Section>
 
-              {/* Toggle which pack keys are included */}
-              <div className="flex flex-wrap gap-2">
-                {availablePackKeys.map(k => {
-                  const pkg = sitePackages.find(p => p.pack_key === k)
-                  const included = includedKeys.has(k)
-                  return (
-                    <button key={k} type="button" onClick={() => togglePackKey(k)}
-                      className={`text-xs px-2.5 py-1 rounded-full border transition-colors font-medium ${
-                        included
-                          ? 'border-[#0F4A35] bg-[#0F4A35] text-white'
-                          : 'border-gray-300 text-gray-500 hover:border-gray-400'
-                      }`}>
-                      {pkg?.label ?? k}
-                    </button>
-                  )
-                })}
-              </div>
+        {/* Section 3: Pack Prices */}
+        <Section title="Pack Prices" icon={<BadgeDollarSign size={14} className="text-[#0F4A35]" />}>
 
-              {/* Entry cards */}
-              {activeEntries.map(entry => {
-                const pkg = sitePackages.find(p => p.pack_key === entry.pack_key)
+          {/* Pack toggles */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <Label className="text-xs font-medium">Include in this sale</Label>
+              <span className="text-[10px] text-gray-400">Leave price blank to keep regular price</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {availablePackKeys.map(k => {
+                const pkg = sitePackages.find(p => p.pack_key === k)
+                const included = includedKeys.has(k)
                 return (
-                  <div key={entry.pack_key} className="border rounded-lg p-4 space-y-3 bg-gray-50">
-                    {/* Pack header */}
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-gray-700">
+                  <button key={k} type="button" onClick={() => togglePackKey(k)}
+                    className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-all ${
+                      included
+                        ? 'border-[#0F4A35] bg-[#0F4A35] text-white shadow-sm'
+                        : 'border-gray-200 text-gray-500 hover:border-gray-400 bg-white'
+                    }`}>
+                    {pkg?.label ?? k}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Pack entry cards */}
+          <div className="space-y-3">
+            {activeEntries.length === 0 && (
+              <div className="text-xs text-gray-400 text-center py-6 border border-dashed rounded-lg">
+                Select packs above to configure sale prices
+              </div>
+            )}
+            {activeEntries.map(entry => {
+              const pkg = sitePackages.find(p => p.pack_key === entry.pack_key)
+              return (
+                <div key={entry.pack_key} className="border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
+
+                  {/* Pack card header */}
+                  <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-200"
+                    style={{ background: 'linear-gradient(to right, #f0fdf4, #f8fafc)' }}>
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-[#0F4A35]" />
+                      <span className="text-sm font-bold text-gray-900">
                         {pkg?.label ?? entry.pack_key}
-                        {pkg?.supply && <span className="ml-1.5 font-normal text-muted-foreground">· {pkg.supply}</span>}
                       </span>
-                      <button type="button" onClick={() => togglePackKey(entry.pack_key)}
-                        className="text-muted-foreground hover:text-destructive transition-colors">
-                        <X size={14} />
-                      </button>
+                      {pkg?.supply && (
+                        <span className="text-xs text-gray-500 font-medium">· {pkg.supply}</span>
+                      )}
                     </div>
+                    <button type="button" onClick={() => togglePackKey(entry.pack_key)}
+                      className="text-gray-400 hover:text-red-500 transition-colors">
+                      <X size={14} />
+                    </button>
+                  </div>
 
-                    {/* Display overrides — shown only during sale */}
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="space-y-1">
-                        <Label className="text-[10px]">
-                          Label Override <span className="text-muted-foreground">optional</span>
-                        </Label>
-                        <Input
-                          placeholder={pkg?.label ?? ''}
-                          value={entry.label_override}
-                          onChange={e => updateEntry(entry.pack_key, 'label_override', e.target.value)}
-                          className="h-7 text-xs" />
-                        <p className="text-[9px] text-muted-foreground">e.g. "6 Bottles" during sale</p>
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-[10px]">
-                          Supply Override <span className="text-muted-foreground">optional</span>
-                        </Label>
-                        <Input
-                          placeholder={pkg?.supply ?? ''}
-                          value={entry.supply_override}
-                          onChange={e => updateEntry(entry.pack_key, 'supply_override', e.target.value)}
-                          className="h-7 text-xs" />
-                        <p className="text-[9px] text-muted-foreground">e.g. "180-Day Supply"</p>
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-[10px]">
-                          Image Override <span className="text-muted-foreground">optional</span>
-                        </Label>
-                        <ImageUploader
-                          currentUrl={entry.image_url_override}
-                          folder={`${siteSlug}/sales`}
-                          filename={`img-override-${entry.pack_key}-${event?.id ?? 'new'}`}
-                          onUploaded={url => updateEntry(entry.pack_key, 'image_url_override', url)}
-                          label="Upload Sale Image"
-                        />
-                        <Input
-                          placeholder="or paste URL"
-                          value={entry.image_url_override}
-                          onChange={e => updateEntry(entry.pack_key, 'image_url_override', e.target.value)}
-                          className="h-7 text-xs font-mono mt-1" />
+                  <div className="p-3 space-y-3">
+
+                    {/* Display overrides */}
+                    <div>
+                      <p className="text-[10px] font-semibold text-gray-700 uppercase tracking-wide mb-2">Display Overrides <span className="font-normal normal-case text-gray-500">(shown only during sale)</span></p>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-[10px]">Label</Label>
+                          <Input placeholder={pkg?.label ?? 'e.g. 6 Bottles'} value={entry.label_override}
+                            onChange={e => updateEntry(entry.pack_key, 'label_override', e.target.value)}
+                            className="h-7 text-xs" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px]">Supply</Label>
+                          <Input placeholder={pkg?.supply ?? 'e.g. 180-Day Supply'} value={entry.supply_override}
+                            onChange={e => updateEntry(entry.pack_key, 'supply_override', e.target.value)}
+                            className="h-7 text-xs" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px]">Image</Label>
+                          <ImageUploader currentUrl={entry.image_url_override} folder={`${siteSlug}/sales`}
+                            filename={`img-override-${entry.pack_key}-${event?.id ?? 'new'}`}
+                            onUploaded={url => updateEntry(entry.pack_key, 'image_url_override', url)} label="Upload" />
+                          <Input placeholder="or paste URL" value={entry.image_url_override}
+                            onChange={e => updateEntry(entry.pack_key, 'image_url_override', e.target.value)}
+                            className="h-7 text-[10px] font-mono mt-1" />
+                        </div>
                       </div>
                     </div>
 
-                    {/* Sale price row */}
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="space-y-1">
-                        <Label className="text-[10px]">Sale Price ($)</Label>
-                        <Input
-                          type="number" step="0.01" placeholder={pkg ? String(pkg.price) : ''}
-                          value={entry.price}
-                          onChange={e => updateEntry(entry.pack_key, 'price', e.target.value)}
-                          className="h-7 text-xs" />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-[10px]">List Price ($) <span className="text-muted-foreground">optional</span></Label>
-                        <Input
-                          type="number" step="0.01" placeholder="strikethrough"
-                          value={entry.list_price}
-                          onChange={e => updateEntry(entry.pack_key, 'list_price', e.target.value)}
-                          className="h-7 text-xs" />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-[10px]">Badge <span className="text-muted-foreground">optional</span></Label>
-                        <Input
-                          placeholder="SAVE $144"
-                          value={entry.badge}
-                          onChange={e => updateEntry(entry.pack_key, 'badge', e.target.value)}
-                          className="h-7 text-xs" />
+                    {/* Sale pricing */}
+                    <div>
+                      <p className="text-[10px] font-semibold text-gray-700 uppercase tracking-wide mb-2">Pricing</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-1">
+                          <Label className="text-[10px]">Sale Price ($)</Label>
+                          <Input type="number" step="0.01"
+                            placeholder={pkg ? String(pkg.price) : 'optional'}
+                            value={entry.price}
+                            onChange={e => updateEntry(entry.pack_key, 'price', e.target.value)}
+                            className="h-7 text-xs" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px]">List Price ($)</Label>
+                          <Input type="number" step="0.01" placeholder="strikethrough"
+                            value={entry.list_price}
+                            onChange={e => updateEntry(entry.pack_key, 'list_price', e.target.value)}
+                            className="h-7 text-xs" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px]">Badge</Label>
+                          <Input placeholder="SAVE $144" value={entry.badge}
+                            onChange={e => updateEntry(entry.pack_key, 'badge', e.target.value)}
+                            className="h-7 text-xs" />
+                        </div>
                       </div>
                     </div>
 
-                    {/* Upsell section */}
-                    <div className="space-y-2 pt-1 border-t border-dashed">
+                    {/* Checkout URL override */}
+                    <div className="space-y-1">
+                      <Label className="text-[10px] font-semibold text-gray-700 uppercase tracking-wide">
+                        Checkout URL Override
+                        <span className="ml-1 font-normal normal-case text-gray-500">— use when relabeling (e.g. 5→6 bottles)</span>
+                      </Label>
+                      <Input
+                        placeholder={pkg?.checkout_url ?? 'https://checkout.example.com/…'}
+                        value={entry.checkout_url}
+                        onChange={e => updateEntry(entry.pack_key, 'checkout_url', e.target.value)}
+                        className="h-7 text-[10px] font-mono" />
+                    </div>
+
+                    {/* Upsell */}
+                    <div className="border-t border-dashed border-gray-200 pt-3 space-y-2">
                       <div className="flex items-center gap-2">
-                        <Switch
-                          checked={entry.show_upsell}
-                          onCheckedChange={v => updateEntry(entry.pack_key, 'show_upsell', v)}
-                        />
-                        <Label className="text-[10px] font-semibold cursor-pointer">Show Upsell Offer</Label>
+                        <Switch checked={entry.show_upsell}
+                          onCheckedChange={v => updateEntry(entry.pack_key, 'show_upsell', v)} />
+                        <Label className="text-xs font-semibold text-gray-800 cursor-pointer">Show Upsell Modal</Label>
                         {!entry.show_upsell && (
-                          <span className="text-[10px] text-muted-foreground">(upsell modal hidden during this sale)</span>
+                          <span className="text-xs text-gray-500">— modal hidden, Order Now goes to checkout</span>
                         )}
                       </div>
 
                       {entry.show_upsell && (
-                        <div className="space-y-2">
+                        <div className="space-y-2 pl-1">
                           <div className="grid grid-cols-2 gap-2">
                             <div className="space-y-1">
                               <Label className="text-[10px]">Upsell Bottles</Label>
-                              <Input
-                                type="number"
-                                value={entry.upsell_bottles}
+                              <Input type="number" value={entry.upsell_bottles}
                                 onChange={e => updateEntry(entry.pack_key, 'upsell_bottles', e.target.value)}
                                 className="h-7 text-xs" />
                             </div>
                             <div className="space-y-1">
                               <Label className="text-[10px]">Upsell Title</Label>
-                              <Input
-                                placeholder="Buy 6 Bottles..."
-                                value={entry.upsell_title}
+                              <Input placeholder="Buy 6 Bottles…" value={entry.upsell_title}
                                 onChange={e => updateEntry(entry.pack_key, 'upsell_title', e.target.value)}
                                 className="h-7 text-xs" />
                             </div>
@@ -495,70 +595,53 @@ export default function SaleEventForm({ siteId, siteSlug, sitePackages, siteUpse
                           <div className="grid grid-cols-3 gap-2">
                             <div className="space-y-1">
                               <Label className="text-[10px]">Price Each ($)</Label>
-                              <Input
-                                type="number" step="0.01"
-                                value={entry.upsell_price_each}
+                              <Input type="number" step="0.01" value={entry.upsell_price_each}
                                 onChange={e => updateEntry(entry.pack_key, 'upsell_price_each', e.target.value)}
                                 className="h-7 text-xs" />
                             </div>
                             <div className="space-y-1">
                               <Label className="text-[10px]">Original Total ($)</Label>
-                              <Input
-                                type="number" step="0.01"
-                                value={entry.upsell_original_total}
+                              <Input type="number" step="0.01" value={entry.upsell_original_total}
                                 onChange={e => updateEntry(entry.pack_key, 'upsell_original_total', e.target.value)}
                                 className="h-7 text-xs" />
                             </div>
                             <div className="space-y-1">
                               <Label className="text-[10px]">Discounted Total ($)</Label>
-                              <Input
-                                type="number" step="0.01"
-                                value={entry.upsell_discounted_total}
+                              <Input type="number" step="0.01" value={entry.upsell_discounted_total}
                                 onChange={e => updateEntry(entry.pack_key, 'upsell_discounted_total', e.target.value)}
                                 className="h-7 text-xs" />
                             </div>
                           </div>
                           <div className="space-y-1">
-                            <Label className="text-[10px]">Upsell Checkout URL</Label>
-                            <Input
-                              placeholder="https://checkout.example.com/…"
+                            <Label className="text-[10px]">Checkout URL</Label>
+                            <Input placeholder="https://checkout.example.com/…"
                               value={entry.upsell_checkout_url}
                               onChange={e => updateEntry(entry.pack_key, 'upsell_checkout_url', e.target.value)}
-                              className="h-7 text-xs font-mono" />
+                              className="h-7 text-[10px] font-mono" />
                           </div>
                         </div>
                       )}
                     </div>
+
                   </div>
-                )
-              })}
+                </div>
+              )
+            })}
+          </div>
 
-              {activeEntries.length === 0 && (
-                <p className="text-xs text-muted-foreground text-center py-3 border border-dashed rounded-lg">
-                  No packs selected — toggle packs above to add sale prices
-                </p>
-              )}
-            </div>
+        </Section>
 
-            {/* Actions */}
-            <div className="flex gap-2 pt-1">
-              <Button type="submit" size="sm" className="flex-1 text-white text-xs font-semibold"
-                style={{ background: '#0F4A35' }} disabled={saving}>
-                {saving ? <Loader2 size={13} className="animate-spin mr-1.5" /> : <Save size={13} className="mr-1.5" />}
-                {isNew ? 'Create Sale' : 'Save Changes'}
-              </Button>
-              {!isNew && (
-                <Button type="button" size="sm" variant="outline"
-                  className="text-destructive border-destructive hover:bg-destructive/10"
-                  onClick={onDelete} disabled={deleting}>
-                  {deleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
-                </Button>
-              )}
-            </div>
+        {/* ── Save button ───────────────────────────────────────────────── */}
+        <div className="sticky bottom-0 pt-2 pb-1 bg-white">
+          <Button type="submit" size="sm"
+            className="w-full text-white text-sm font-semibold h-10 gap-2"
+            style={{ background: '#0F4A35' }} disabled={saving}>
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            {isNew ? 'Create Sale Event' : 'Save Changes'}
+          </Button>
+        </div>
 
-          </form>
-        </CardContent>
-      )}
-    </Card>
+      </form>
+    </div>
   )
 }

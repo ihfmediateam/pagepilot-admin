@@ -42,7 +42,14 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true, id: eventId })
+    // Return the full event with sale_prices so the client can update state without a page reload
+    const { data: saved } = await supabase
+      .from('sale_events')
+      .select('*, sale_prices(*)')
+      .eq('id', eventId)
+      .single()
+
+    return NextResponse.json({ ok: true, id: eventId, event: saved })
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
   }
