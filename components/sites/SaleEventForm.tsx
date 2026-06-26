@@ -32,6 +32,7 @@ type PackPriceEntry = {
   upsell_price_each: string
   upsell_original_total: string
   upsell_discounted_total: string
+  upsell_image_url: string
   upsell_checkout_url: string
 }
 
@@ -101,6 +102,7 @@ function blankEntry(pack_key: string, upsell?: Upsell): PackPriceEntry {
     upsell_price_each: upsell ? String(upsell.price_each) : '',
     upsell_original_total: upsell ? String(upsell.original_total) : '',
     upsell_discounted_total: upsell ? String(upsell.discounted_total) : '',
+    upsell_image_url: upsell?.image_url ?? '',
     upsell_checkout_url: upsell?.upsell_checkout_url ?? '',
   }
 }
@@ -120,6 +122,7 @@ function salePriceToEntry(sp: SalePrice, upsell?: Upsell): PackPriceEntry {
     upsell_price_each: sp.upsell_price_each != null ? String(sp.upsell_price_each) : (upsell ? String(upsell.price_each) : ''),
     upsell_original_total: sp.upsell_original_total != null ? String(sp.upsell_original_total) : (upsell ? String(upsell.original_total) : ''),
     upsell_discounted_total: sp.upsell_discounted_total != null ? String(sp.upsell_discounted_total) : (upsell ? String(upsell.discounted_total) : ''),
+    upsell_image_url: sp.upsell_image_url ?? upsell?.image_url ?? '',
     upsell_checkout_url: sp.upsell_checkout_url ?? upsell?.upsell_checkout_url ?? '',
   }
 }
@@ -249,6 +252,7 @@ export default function SaleEventForm({
           upsell_price_each: numOrNull(e.upsell_price_each) ?? (upsell?.price_each ?? null),
           upsell_original_total: numOrNull(e.upsell_original_total) ?? (upsell?.original_total ?? null),
           upsell_discounted_total: numOrNull(e.upsell_discounted_total) ?? (upsell?.discounted_total ?? null),
+          upsell_image_url: e.upsell_image_url || upsell?.image_url || null,
           upsell_checkout_url: e.upsell_checkout_url || upsell?.upsell_checkout_url || null,
         }
       })
@@ -611,6 +615,20 @@ export default function SaleEventForm({
                                 onChange={e => updateEntry(entry.pack_key, 'upsell_discounted_total', e.target.value)}
                                 className="h-7 text-xs" />
                             </div>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[10px]">Upsell Image</Label>
+                            <ImageUploader
+                              currentUrl={entry.upsell_image_url}
+                              folder={`${siteSlug}/sales/upsells`}
+                              filename={`upsell-${entry.pack_key}`}
+                              onUploaded={url => updateEntry(entry.pack_key, 'upsell_image_url', url)}
+                              label="Upload"
+                            />
+                            <Input placeholder="or paste URL"
+                              value={entry.upsell_image_url}
+                              onChange={e => updateEntry(entry.pack_key, 'upsell_image_url', e.target.value)}
+                              className="h-7 text-[10px] font-mono" />
                           </div>
                           <div className="space-y-1">
                             <Label className="text-[10px]">Checkout URL</Label>
