@@ -104,9 +104,15 @@ export default function SalesManager({ siteId, siteSlug, sitePackages, siteUpsel
   // Called by SaleEventForm after a successful save/delete to refresh the list
   function handleSaved(updatedEvent?: SaleEvent) {
     if (!updatedEvent) {
-      // Deleted
+      // Explicit deletion (called via onDeleted)
       setEvents(prev => prev.filter(e => e.id !== selectedId))
       setSelectedId(events.length > 1 ? events.find(e => e.id !== selectedId)?.id ?? 'new' : 'new')
+    } else if ((updatedEvent as Record<string, unknown>).refetch) {
+      // Save succeeded but the refetch failed (schema cache lag). Add a placeholder event so
+      // the user can see the new event in the list and select it. The page reload will show full data.
+      const placeholder = { ...updatedEvent, name: 'Saved — reload to see details', sale_prices: [] } as SaleEvent
+      setEvents(prev => [placeholder, ...prev])
+      setSelectedId(updatedEvent.id)
     } else {
       const exists = events.find(e => e.id === updatedEvent.id)
       if (exists) {

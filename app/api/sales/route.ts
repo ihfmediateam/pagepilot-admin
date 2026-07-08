@@ -43,11 +43,17 @@ export async function POST(request: Request) {
     }
 
     // Return the full event with sale_prices so the client can update state without a page reload
-    const { data: saved } = await supabase
+    const { data: saved, error: fetchErr } = await supabase
       .from('sale_events')
       .select('*, sale_prices(*)')
       .eq('id', eventId)
       .single()
+
+    if (fetchErr || !saved) {
+      // Save succeeded but refetch failed (e.g. schema cache lag). Return a minimal stub so
+      // the client knows the save worked and can select the new event by id.
+      return NextResponse.json({ ok: true, id: eventId, event: { id: eventId, refetch: true } })
+    }
 
     return NextResponse.json({ ok: true, id: eventId, event: saved })
   } catch (e) {
