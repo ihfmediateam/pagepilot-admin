@@ -1,15 +1,13 @@
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft } from 'lucide-react'
-import PackageForm from '@/components/sites/PackageForm'
+import PackagesEditor, { type SiteBundle } from '@/components/sites/PackagesEditor'
 import DeployButton from '@/components/sites/DeployButton'
-import type { Package, Upsell } from '@/lib/types'
+import type { Package, Site, Upsell } from '@/lib/types'
 
 type Props = { params: Promise<{ slug: string }> }
-
-const PACK_KEYS = ['pack-1', 'pack-3', 'pack-5'] as const
 
 export default async function PackagesPage({ params }: Props) {
   const { slug } = await params
@@ -28,12 +26,25 @@ export default async function PackagesPage({ params }: Props) {
     .select('*')
     .eq('site_id', site.id)
 
-  function getPkg(key: string): Package | undefined {
-    return (packages ?? []).find(p => p.pack_key === key)
-  }
-  function getUpsell(key: string): Upsell | undefined {
-    return (upsells ?? []).find(u => u.pack_key === key)
-  }
+  // Load every other site's packages/upsells so pricing can be copied across sites.
+  const admin = createServiceClient()
+  const [{ data: allSites }, { data: allPackages }, { data: allUpsells }] = await Promise.all([
+    admin.from('sites').select('id, slug, product_name, is_active').order('product_name'),
+    admin.from('packages').select('*'),
+    admin.from('upsells').select('*'),
+  ])
+
+  const otherSites: SiteBundle[] = ((allSites ?? []) as Pick<Site, 'id' | 'slug' | 'product_name' | 'is_active'>[])
+    .filter(s => s.id !== site.id)
+    .map(s => ({
+      id: s.id,
+      slug: s.slug,
+      product_name: s.product_name,
+      packages: ((allPackages ?? []) as Package[]).filter(p => p.site_id === s.id),
+      upsells: ((allUpsells ?? []) as Upsell[]).filter(u => u.site_id === s.id),
+    }))
+    // Only offer sites that actually have pricing to copy.
+    .filter(s => s.packages.length > 0)
 
   return (
     <div>
@@ -59,19 +70,14 @@ export default async function PackagesPage({ params }: Props) {
         </div>
       </div>
 
-      {/* 3-column grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {PACK_KEYS.map(key => (
-          <PackageForm
-            key={key}
-            siteId={site.id}
-            siteSlug={slug}
-            packKey={key}
-            pkg={getPkg(key)}
-            upsell={getUpsell(key)}
-          />
-        ))}
-      </div>
+      {/* Copy-from-site picker + 3-column grid of package/upsell cards */}
+      <PackagesEditor
+        siteId={site.id}
+        siteSlug={slug}
+        packages={(packages ?? []) as Package[]}
+        upsells={(upsells ?? []) as Upsell[]}
+        otherSites={otherSites}
+      />
     </div>
   )
 }

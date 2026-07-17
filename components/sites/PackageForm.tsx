@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useForm, type Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -63,6 +63,11 @@ type Props = {
   packKey: 'pack-1' | 'pack-3' | 'pack-5'
   pkg?: Package
   upsell?: Upsell
+  // When copyNonce increments, the fields are repopulated from copyPkg / copyUpsell
+  // (used by the "Copy pricing from another site" feature).
+  copyPkg?: Package | null
+  copyUpsell?: Upsell | null
+  copyNonce?: number
 }
 
 const PACK_LABELS: Record<string, string> = {
@@ -72,7 +77,7 @@ const PACK_LABELS: Record<string, string> = {
 }
 
 
-export default function PackageForm({ siteId, siteSlug, packKey, pkg, upsell }: Props) {
+export default function PackageForm({ siteId, siteSlug, packKey, pkg, upsell, copyPkg, copyUpsell, copyNonce }: Props) {
   const [saving, setSaving] = useState(false)
 
   // Derive default image URLs from convention if not already set
@@ -84,6 +89,7 @@ export default function PackageForm({ siteId, siteSlug, packKey, pkg, upsell }: 
     handleSubmit,
     setValue,
     watch,
+    reset,
     formState: { errors },
   } = useForm<PackageFormValues>({
     resolver: zodResolver(packageSchema) as Resolver<PackageFormValues>,
@@ -107,6 +113,7 @@ export default function PackageForm({ siteId, siteSlug, packKey, pkg, upsell }: 
     handleSubmit: handleSubmitU,
     setValue: setValueU,
     watch: watchU,
+    reset: resetU,
     formState: { errors: errorsU },
   } = useForm<UpsellFormValues>({
     resolver: zodResolver(upsellSchema) as Resolver<UpsellFormValues>,
@@ -120,6 +127,40 @@ export default function PackageForm({ siteId, siteSlug, packKey, pkg, upsell }: 
       upsell_checkout_url: upsell?.upsell_checkout_url ?? '',
     },
   })
+
+  // Apply "Copy pricing from another site" — repopulate fields whenever the
+  // parent bumps copyNonce. We deliberately copy every field (incl. checkout
+  // URLs and image URLs) per the chosen behavior; the user reviews and saves.
+  useEffect(() => {
+    if (!copyNonce) return
+    if (copyPkg) {
+      reset({
+        label: copyPkg.label ?? '',
+        supply: copyPkg.supply ?? '',
+        price: copyPkg.price ?? 0,
+        list_price: copyPkg.list_price ?? 0,
+        per_bottle: copyPkg.per_bottle ?? false,
+        free_shipping: copyPkg.free_shipping ?? false,
+        badge: copyPkg.badge ?? '',
+        package_image_url: copyPkg.package_image_url || pkgImageUrl(siteSlug, packKey),
+        checkout_url: copyPkg.checkout_url ?? '',
+        sort_order: copyPkg.sort_order ?? 0,
+        is_active: copyPkg.is_active ?? true,
+      })
+    }
+    if (copyUpsell) {
+      resetU({
+        bottles: copyUpsell.bottles ?? 2,
+        title: copyUpsell.title ?? '',
+        price_each: copyUpsell.price_each ?? 0,
+        original_total: copyUpsell.original_total ?? 0,
+        discounted_total: copyUpsell.discounted_total ?? 0,
+        image_url: copyUpsell.image_url || upsellImageUrl(siteSlug, packKey),
+        upsell_checkout_url: copyUpsell.upsell_checkout_url ?? '',
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [copyNonce])
 
   async function onSavePackage(data: PackageFormValues) {
     setSaving(true)
