@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Plus, Tag, Calendar, Package2, ChevronRight, Circle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import SaleEventForm from './SaleEventForm'
+import SaleEventForm, { type SaleCopySource } from './SaleEventForm'
 import type { Package, SaleEvent, Upsell } from '@/lib/types'
 
 type Props = {
@@ -12,6 +12,8 @@ type Props = {
   sitePackages: Package[]
   siteUpsells: Upsell[]
   events: SaleEvent[]
+  /** Sale events (this site + other sites) that can be mapped into the form. */
+  copySources?: SaleCopySource[]
 }
 
 // ── Status helpers ─────────────────────────────────────────────────────────
@@ -93,7 +95,7 @@ function EventCard({
 
 // ── Main component ─────────────────────────────────────────────────────────
 
-export default function SalesManager({ siteId, siteSlug, sitePackages, siteUpsells, events: initialEvents }: Props) {
+export default function SalesManager({ siteId, siteSlug, sitePackages, siteUpsells, events: initialEvents, copySources = [] }: Props) {
   const [events, setEvents] = useState<SaleEvent[]>(initialEvents)
   const [selectedId, setSelectedId] = useState<string | 'new' | null>(
     initialEvents.length > 0 ? initialEvents[0].id : 'new'
@@ -190,6 +192,7 @@ export default function SalesManager({ siteId, siteSlug, sitePackages, siteUpsel
           sitePackages={sitePackages}
           siteUpsells={siteUpsells}
           event={selectedEvent}
+          copySources={copySources}
           onSaved={handleSaved}
           onDeleted={() => handleSaved(undefined)}
         />

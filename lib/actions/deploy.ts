@@ -2,6 +2,38 @@
 
 export async function triggerDeploy(githubRepo: string): Promise<{ ok: boolean; error?: string }> {
   try {
+    // GitHub answers a repository_dispatch with 204 even when NO workflow listens
+    // for the event — so a repo missing its deploy workflow looks like a healthy
+    // deploy while nothing ever builds. Verify a workflow exists before claiming success.
+    const wfRes = await fetch(
+      `https://api.github.com/repos/${githubRepo}/actions/workflows`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+          Accept: 'application/vnd.github+json',
+        },
+        cache: 'no-store',
+      }
+    )
+
+    if (wfRes.status === 404) {
+      return {
+        ok: false,
+        error: `Repo "${githubRepo}" not found, or the GitHub token cannot access it.`,
+      }
+    }
+
+    if (wfRes.ok) {
+      const wf = (await wfRes.json()) as { workflows?: { state?: string }[] }
+      const active = (wf.workflows ?? []).filter(w => w.state === 'active')
+      if (active.length === 0) {
+        return {
+          ok: false,
+          error: `"${githubRepo}" has no active GitHub Actions workflow, so the deploy event would be ignored. Add .github/workflows/supabase-deploy.yml to that repo.`,
+        }
+      }
+    }
+
     const res = await fetch(
       `https://api.github.com/repos/${githubRepo}/dispatches`,
       {

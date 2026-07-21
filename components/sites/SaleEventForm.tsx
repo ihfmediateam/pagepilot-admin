@@ -6,7 +6,8 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { toast } from 'sonner'
 import {
-  Loader2, Save, Trash2, Tag, X, Image, BadgeDollarSign, CalendarClock, ChevronDown, ChevronUp
+  Loader2, Save, Trash2, Tag, X, Image, BadgeDollarSign, CalendarClock, ChevronDown, ChevronUp,
+  Copy, Check
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -91,9 +92,15 @@ function numOrNull(s: string): number | null {
   const n = parseFloat(s)
   return isNaN(n) ? null : n
 }
-function blankEntry(pack_key: string, upsell?: Upsell): PackPriceEntry {
+// A "blank" sale entry is pre-filled with the site's regular pricing so a new
+// sale event starts from the live numbers instead of empty boxes. Override
+// fields (label/supply/image) stay empty — they only apply during the sale.
+function blankEntry(pack_key: string, upsell?: Upsell, pkg?: Package): PackPriceEntry {
   return {
-    pack_key, price: '', list_price: '', badge: '',
+    pack_key,
+    price: pkg != null ? String(pkg.price) : '',
+    list_price: pkg?.list_price != null ? String(pkg.list_price) : '',
+    badge: pkg?.badge ?? '',
     label_override: '', supply_override: '', image_url_override: '',
     checkout_url: '',
     show_upsell: true,
@@ -154,12 +161,23 @@ function Section({ title, icon, children, defaultOpen = true }: {
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
+/** A sale event elsewhere (same site or another site) that can be mapped in. */
+export type SaleCopySource = {
+  id: string
+  name: string
+  siteId: string
+  siteName: string
+  isSameSite: boolean
+  event: SaleEvent
+}
+
 type Props = {
   siteId: string
   siteSlug: string
   sitePackages: Package[]
   siteUpsells: Upsell[]
   event?: SaleEvent
+  copySources?: SaleCopySource[]
   onSaved?: (event: SaleEvent) => void
   onDeleted?: () => void
 }
@@ -167,7 +185,7 @@ type Props = {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function SaleEventForm({
-  siteId, siteSlug, sitePackages, siteUpsells, event, onSaved, onDeleted
+  siteId, siteSlug, sitePackages, siteUpsells, event, copySources = [], onSaved, onDeleted
 }: Props) {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -175,12 +193,13 @@ export default function SaleEventForm({
 
   const availablePackKeys = sitePackages.map(p => p.pack_key)
   const upsellByPackKey = Object.fromEntries(siteUpsells.map(u => [u.pack_key, u]))
+  const pkgByPackKey = Object.fromEntries(sitePackages.map(p => [p.pack_key, p]))
 
   const [packEntries, setPackEntries] = useState<PackPriceEntry[]>(() => {
     if (event?.sale_prices && event.sale_prices.length > 0) {
       return event.sale_prices.map(sp => salePriceToEntry(sp as SalePrice, upsellByPackKey[sp.pack_key]))
     }
-    return availablePackKeys.map(k => blankEntry(k, upsellByPackKey[k]))
+    return availablePackKeys.map(k => blankEntry(k, upsellByPackKey[k], pkgByPackKey[k]))
   })
 
   const [includedKeys, setIncludedKeys] = useState<Set<string>>(
@@ -195,7 +214,7 @@ export default function SaleEventForm({
       } else {
         next.add(key)
         if (!packEntries.find(e => e.pack_key === key)) {
-          setPackEntries(pe => [...pe, blankEntry(key, upsellByPackKey[key])])
+          setPackEntries(pe => [...pe, blankEntry(key, upsellByPackKey[key], pkgByPackKey[key])])
         }
       }
       return next
@@ -206,7 +225,7 @@ export default function SaleEventForm({
     setPackEntries(prev => prev.map(e => e.pack_key === key ? { ...e, [field]: value } : e))
   }
 
-  const { register, handleSubmit, watch, setValue, formState: { errors } } = useForm<MetaValues>({
+  const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm<MetaValues>({
     resolver: zodResolver(metaSchema) as Resolver<MetaValues>,
     defaultValues: {
       name: event?.name ?? '',
@@ -226,6 +245,55 @@ export default function SaleEventForm({
   const bannerMobile = watch('banner_mobile_url') ?? ''
   const labelDesktop = watch('label_image_desktop_url') ?? ''
   const labelMobile = watch('label_image_mobile_url') ?? ''
+
+  // ── Copy from another sale event (same site or another site) ──────────────
+  const [copiedFrom, setCopiedFrom] = useState<SaleCopySource | null>(null)
+  const [copySelectId, setCopySelectId] = useState('')
+
+  // Don't offer the event currently being edited as a source.
+  const selectableSources = copySources.filter(s => s.id !== event?.id)
+  const sameSiteSources = selectableSources.filter(s => s.isSameSite)
+  const otherSiteSources = selectableSources.filter(s => !s.isSameSite)
+
+  function handleCopyFrom(id: string) {
+    setCopySelectId(id)
+    const src = selectableSources.find(s => s.id === id)
+    if (!src) return
+    const se = src.event
+
+    // Meta fields — dates are copied too so a recurring window can be reused,
+    // then adjusted. The banner shown below reminds the user to check them.
+    reset({
+      name: se.name ?? '',
+      starts_at: se.starts_at ? utcToEst(se.starts_at) : '',
+      ends_at: se.ends_at ? utcToEst(se.ends_at) : '',
+      label_text: se.label_text ?? '',
+      banner_desktop_url: se.banner_desktop_url ?? '',
+      banner_mobile_url: se.banner_mobile_url ?? '',
+      label_image_desktop_url: se.label_image_desktop_url ?? '',
+      label_image_mobile_url: se.label_image_mobile_url ?? '',
+      is_active: se.is_active ?? true,
+    })
+
+    // Per-pack sale prices + upsell overrides, limited to pack keys this site has.
+    const srcPrices = (se.sale_prices ?? []) as SalePrice[]
+    setPackEntries(
+      availablePackKeys.map(key => {
+        const sp = srcPrices.find(p => p.pack_key === key)
+        return sp ? salePriceToEntry(sp, upsellByPackKey[key]) : blankEntry(key, upsellByPackKey[key], pkgByPackKey[key])
+      })
+    )
+    const availableKeySet = new Set<string>(availablePackKeys)
+    setIncludedKeys(
+      new Set(srcPrices.filter(p => availableKeySet.has(p.pack_key)).map(p => p.pack_key))
+    )
+    setCopiedFrom(src)
+
+    const skipped = srcPrices.filter(p => !availableKeySet.has(p.pack_key)).length
+    toast.success(`Mapped from "${src.name}"`, {
+      description: `${src.siteName}${skipped ? ` · ${skipped} pack(s) skipped — not on this site` : ''} — check the dates, then Save.`,
+    })
+  }
 
   async function onSubmit(meta: MetaValues) {
     setSaving(true)
@@ -336,6 +404,56 @@ export default function SaleEventForm({
           </Button>
         )}
       </div>
+
+      {/* ── Copy from another sale event ──────────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-3 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5">
+        <div className="flex items-center gap-2 text-xs font-semibold text-gray-700 shrink-0">
+          <Copy size={13} className="text-purple-600" />
+          Copy from sale
+        </div>
+        <select
+          value={copySelectId}
+          onChange={e => handleCopyFrom(e.target.value)}
+          disabled={selectableSources.length === 0}
+          className="flex-1 h-8 text-xs rounded-md border border-gray-300 bg-white px-2 focus:outline-none focus:ring-2 focus:ring-[#0F4A35]/30 disabled:opacity-50"
+        >
+          <option value="">
+            {selectableSources.length === 0
+              ? 'No other sale events available'
+              : 'Select a sale event to map…'}
+          </option>
+          {sameSiteSources.length > 0 && (
+            <optgroup label="This site — previous sales">
+              {sameSiteSources.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({s.event.sale_prices?.length ?? 0} packs)
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {otherSiteSources.length > 0 && (
+            <optgroup label="Other sites">
+              {otherSiteSources.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.siteName} — {s.name} ({s.event.sale_prices?.length ?? 0} packs)
+                </option>
+              ))}
+            </optgroup>
+          )}
+        </select>
+        {copiedFrom && (
+          <div className="flex items-center gap-1.5 text-[11px] text-green-700 font-medium shrink-0">
+            <Check size={12} /> Mapped from {copiedFrom.name}
+          </div>
+        )}
+      </div>
+
+      {copiedFrom && (
+        <p className="text-[11px] text-amber-600 -mt-1 mb-2">
+          Filled from <span className="font-semibold">{copiedFrom.siteName} · {copiedFrom.name}</span>{' '}
+          (incl. dates, banners &amp; checkout URLs). Nothing is saved yet — <span className="font-semibold">check the start/end dates</span>, then click Save.
+        </p>
+      )}
 
       {/* ── Form ──────────────────────────────────────────────────────────── */}
       <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-3 flex-1">

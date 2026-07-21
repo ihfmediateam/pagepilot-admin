@@ -55,7 +55,8 @@ async function optimizeImage(buffer: Buffer, mimeType: string, originalExt: stri
 // Extract storage path from a full Supabase CDN URL
 // e.g. https://xxx.supabase.co/storage/v1/object/public/images/colopril/packages/pack-1-bottle.png
 //   → colopril/packages/pack-1-bottle.png
-function pathFromUrl(url: string): string | null {
+function pathFromUrl(url: string | null | undefined): string | null {
+  if (!url) return null
   try {
     const marker = `/object/public/${BUCKET}/`
     const idx = url.indexOf(marker)
@@ -64,6 +65,35 @@ function pathFromUrl(url: string): string | null {
   } catch {
     return null
   }
+}
+
+type Supa = ReturnType<typeof createServiceClient>
+
+// How many rows across the schema still point at this storage path?
+// The row being edited normally accounts for exactly one reference; anything
+// above that means the file is shared and must not be deleted.
+async function countReferences(supabase: Supa, path: string): Promise<number> {
+  const [{ data: pkgs }, { data: ups }, { data: evts }, { data: sps }] = await Promise.all([
+    supabase.from('packages').select('package_image_url'),
+    supabase.from('upsells').select('image_url'),
+    supabase.from('sale_events').select('banner_desktop_url, banner_mobile_url, label_image_desktop_url, label_image_mobile_url'),
+    supabase.from('sale_prices').select('image_url_override, upsell_image_url'),
+  ])
+
+  let count = 0
+  const hit = (u: string | null | undefined) => {
+    if (pathFromUrl(u) === path) count++
+  }
+  for (const r of (pkgs ?? []) as { package_image_url: string | null }[]) hit(r.package_image_url)
+  for (const r of (ups ?? []) as { image_url: string | null }[]) hit(r.image_url)
+  for (const r of (evts ?? []) as Record<string, string | null>[]) {
+    hit(r.banner_desktop_url); hit(r.banner_mobile_url)
+    hit(r.label_image_desktop_url); hit(r.label_image_mobile_url)
+  }
+  for (const r of (sps ?? []) as Record<string, string | null>[]) {
+    hit(r.image_url_override); hit(r.upsell_image_url)
+  }
+  return count
 }
 
 export async function POST(request: Request) {
@@ -101,12 +131,30 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: uploadError.message }, { status: 500 })
     }
 
-    // 3. Delete old file if it exists and is different from the new path
+    // 3. Delete the previous file — but only when it is unambiguously this
+    //    field's own leftover. Two guards, because the URL sitting in the form
+    //    is not necessarily a file this row owns:
+    //
+    //    (a) Same slot. "Copy pricing/sale from another site" loads that site's
+    //        image URLs into these inputs, so oldUrl can point into a DIFFERENT
+    //        site's folder. Deleting it would break that site's live page. Only
+    //        touch files at the same `folder/filename.*` slot — i.e. the same
+    //        image, re-encoded to a new extension (png -> jpg).
+    //
+    //    (b) Not shared. A sale event that never overrode its upsell image
+    //        stores the site's REGULAR upsell image URL, so the same file can be
+    //        referenced by several rows. The row being edited accounts for one
+    //        reference; more than that means someone else still needs the file.
     if (oldUrl) {
       const oldPath = pathFromUrl(oldUrl)
-      if (oldPath && oldPath !== newPath) {
-        // Fire-and-forget — don't block on delete errors
-        supabase.storage.from(BUCKET).remove([oldPath]).catch(() => {})
+      const sameSlot = oldPath?.startsWith(`${folder}/${filename}.`) ?? false
+
+      if (oldPath && oldPath !== newPath && sameSlot) {
+        const refs = await countReferences(supabase, oldPath)
+        if (refs <= 1) {
+          // Fire-and-forget — don't block the response on delete errors
+          supabase.storage.from(BUCKET).remove([oldPath]).catch(() => {})
+        }
       }
     }
 

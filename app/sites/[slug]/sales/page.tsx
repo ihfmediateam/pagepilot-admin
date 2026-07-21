@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { ArrowLeft } from 'lucide-react'
 import DeployButton from '@/components/sites/DeployButton'
 import SalesManager from '@/components/sites/SalesManager'
+import type { SaleCopySource } from '@/components/sites/SaleEventForm'
 import type { Package, SaleEvent, Upsell } from '@/lib/types'
 
 type Props = { params: Promise<{ slug: string }> }
@@ -19,11 +20,28 @@ export default async function SalesPage({ params }: Props) {
 
   const admin = createServiceClient()
 
-  const [{ data: events }, { data: packages }, { data: upsells }] = await Promise.all([
-    admin.from('sale_events').select('*, sale_prices(*)').eq('site_id', site.id).order('starts_at', { ascending: false }),
-    admin.from('packages').select('*').eq('site_id', site.id).eq('is_active', true).order('sort_order'),
-    admin.from('upsells').select('*').eq('site_id', site.id).eq('is_active', true),
-  ])
+  const [{ data: events }, { data: packages }, { data: upsells }, { data: allSites }, { data: allEvents }] =
+    await Promise.all([
+      admin.from('sale_events').select('*, sale_prices(*)').eq('site_id', site.id).order('starts_at', { ascending: false }),
+      admin.from('packages').select('*').eq('site_id', site.id).eq('is_active', true).order('sort_order'),
+      admin.from('upsells').select('*').eq('site_id', site.id).eq('is_active', true),
+      admin.from('sites').select('id, product_name'),
+      // Every sale event across all sites — used as "copy from" sources.
+      admin.from('sale_events').select('*, sale_prices(*)').order('starts_at', { ascending: false }),
+    ])
+
+  const siteNameById = new Map(
+    ((allSites ?? []) as { id: string; product_name: string }[]).map(s => [s.id, s.product_name])
+  )
+
+  const copySources: SaleCopySource[] = ((allEvents ?? []) as SaleEvent[]).map(e => ({
+    id: e.id,
+    name: e.name,
+    siteId: e.site_id,
+    siteName: siteNameById.get(e.site_id) ?? 'Unknown site',
+    isSameSite: e.site_id === site.id,
+    event: e,
+  }))
 
   return (
     <div>
@@ -55,6 +73,7 @@ export default async function SalesPage({ params }: Props) {
         sitePackages={(packages ?? []) as Package[]}
         siteUpsells={(upsells ?? []) as Upsell[]}
         events={(events ?? []) as SaleEvent[]}
+        copySources={copySources}
       />
     </div>
   )

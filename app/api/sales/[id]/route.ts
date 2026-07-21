@@ -46,9 +46,41 @@ export async function DELETE(
       for (const sp of prices ?? []) {
         urls.push(sp.image_url_override, sp.upsell_image_url)
       }
-      const paths = urls.map(pathFromUrl).filter((p): p is string => !!p)
+      const paths = [...new Set(urls.map(pathFromUrl).filter((p): p is string => !!p))]
+
       if (paths.length > 0) {
-        supabase.storage.from(BUCKET).remove(paths).catch(() => {})
+        // These URLs are NOT necessarily exclusive to this sale event:
+        //  • a sale that never overrode its upsell image stores the site's
+        //    regular upsell image URL (see the fallback in POST /api/sales), and
+        //  • an event copied from another sale/site points at that site's files.
+        // Deleting them blindly would break live pages, so only remove files
+        // that nothing else in the database still references.
+        const [{ data: pkgs }, { data: ups }, { data: evts }, { data: sps }] = await Promise.all([
+          supabase.from('packages').select('package_image_url'),
+          supabase.from('upsells').select('image_url'),
+          supabase.from('sale_events').select('banner_desktop_url, banner_mobile_url, label_image_desktop_url, label_image_mobile_url'),
+          supabase.from('sale_prices').select('image_url_override, upsell_image_url'),
+        ])
+
+        const referenced = new Set<string>()
+        const keep = (u: string | null | undefined) => {
+          const p = pathFromUrl(u)
+          if (p) referenced.add(p)
+        }
+        for (const r of (pkgs ?? []) as { package_image_url: string | null }[]) keep(r.package_image_url)
+        for (const r of (ups ?? []) as { image_url: string | null }[]) keep(r.image_url)
+        for (const r of (evts ?? []) as Record<string, string | null>[]) {
+          keep(r.banner_desktop_url); keep(r.banner_mobile_url)
+          keep(r.label_image_desktop_url); keep(r.label_image_mobile_url)
+        }
+        for (const r of (sps ?? []) as Record<string, string | null>[]) {
+          keep(r.image_url_override); keep(r.upsell_image_url)
+        }
+
+        const orphaned = paths.filter(p => !referenced.has(p))
+        if (orphaned.length > 0) {
+          supabase.storage.from(BUCKET).remove(orphaned).catch(() => {})
+        }
       }
     }
 
