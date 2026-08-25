@@ -4,10 +4,17 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft } from 'lucide-react'
 import PackagesEditor, { type SiteBundle } from '@/components/sites/PackagesEditor'
+import SubscriptionPlansEditor from '@/components/sites/SubscriptionPlansEditor'
 import DeployButton from '@/components/sites/DeployButton'
-import type { Package, Site, Upsell } from '@/lib/types'
+import type { Package, Site, SubscriptionPlan, Upsell } from '@/lib/types'
 
 type Props = { params: Promise<{ slug: string }> }
+
+// Always render fresh. The subscription_plans / cross-site data is fetched with
+// the service-role client (no cookies), which Next.js would otherwise cache in
+// the Data Cache — showing stale/empty plans after a save. force-dynamic opts
+// every fetch in this route out of caching.
+export const dynamic = 'force-dynamic'
 
 export default async function PackagesPage({ params }: Props) {
   const { slug } = await params
@@ -46,6 +53,17 @@ export default async function PackagesPage({ params }: Props) {
     // Only offer sites that actually have pricing to copy.
     .filter(s => s.packages.length > 0)
 
+  // Subscribe & Save plans. The table may not exist yet — if the query errors
+  // (e.g. relation missing), fall back to an empty list and flag it so the
+  // section renders with a "create the table first" notice instead of crashing.
+  const subsResult = await admin
+    .from('subscription_plans')
+    .select('*')
+    .eq('site_id', site.id)
+    .order('sort_order')
+  const subscriptionPlans = (subsResult.data ?? []) as SubscriptionPlan[]
+  const subsTableMissing = !!subsResult.error
+
   return (
     <div>
       {/* Header */}
@@ -77,6 +95,13 @@ export default async function PackagesPage({ params }: Props) {
         packages={(packages ?? []) as Package[]}
         upsells={(upsells ?? []) as Upsell[]}
         otherSites={otherSites}
+      />
+
+      <SubscriptionPlansEditor
+        siteId={site.id}
+        siteSlug={slug}
+        plans={subscriptionPlans}
+        tableMissing={subsTableMissing}
       />
     </div>
   )

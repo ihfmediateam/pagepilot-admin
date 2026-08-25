@@ -45,6 +45,26 @@ export type Upsell = {
   updated_at: string
 }
 
+export type SubscriptionPlan = {
+  id: string
+  site_id: string
+  plan_key: 'sub-30' | 'sub-45' | 'sub-60'
+  duration_label: string
+  interval_days: number | null
+  price: number
+  compare_at_price: number | null
+  discount_label: string | null
+  cadence_label: string | null
+  badge: string | null
+  image_url: string | null
+  checkout_url: string
+  is_default: boolean
+  sort_order: number
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
 export type SalePrice = {
   id: string
   sale_event_id: string

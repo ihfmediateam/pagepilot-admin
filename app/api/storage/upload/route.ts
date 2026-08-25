@@ -73,11 +73,12 @@ type Supa = ReturnType<typeof createServiceClient>
 // The row being edited normally accounts for exactly one reference; anything
 // above that means the file is shared and must not be deleted.
 async function countReferences(supabase: Supa, path: string): Promise<number> {
-  const [{ data: pkgs }, { data: ups }, { data: evts }, { data: sps }] = await Promise.all([
+  const [{ data: pkgs }, { data: ups }, { data: evts }, { data: sps }, subs] = await Promise.all([
     supabase.from('packages').select('package_image_url'),
     supabase.from('upsells').select('image_url'),
     supabase.from('sale_events').select('banner_desktop_url, banner_mobile_url, label_image_desktop_url, label_image_mobile_url'),
     supabase.from('sale_prices').select('image_url_override, upsell_image_url'),
+    supabase.from('subscription_plans').select('image_url'),
   ])
 
   let count = 0
@@ -93,6 +94,8 @@ async function countReferences(supabase: Supa, path: string): Promise<number> {
   for (const r of (sps ?? []) as Record<string, string | null>[]) {
     hit(r.image_url_override); hit(r.upsell_image_url)
   }
+  // subscription_plans may not exist on older projects — ignore its error.
+  for (const r of (subs.data ?? []) as { image_url: string | null }[]) hit(r.image_url)
   return count
 }
 
