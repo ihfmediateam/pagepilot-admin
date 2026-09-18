@@ -48,6 +48,8 @@ const metaSchema = z.object({
   banner_mobile_url: z.string().optional(),
   label_image_desktop_url: z.string().optional(),
   label_image_mobile_url: z.string().optional(),
+  label_bg_color: z.string().optional(),
+  label_icon_url: z.string().optional(),
   is_active: z.boolean(),
 })
 type MetaValues = z.infer<typeof metaSchema>
@@ -236,6 +238,8 @@ export default function SaleEventForm({
       banner_mobile_url: event?.banner_mobile_url ?? '',
       label_image_desktop_url: event?.label_image_desktop_url ?? '',
       label_image_mobile_url: event?.label_image_mobile_url ?? '',
+      label_bg_color: event?.label_bg_color ?? '',
+      label_icon_url: event?.label_icon_url ?? '',
       is_active: event?.is_active ?? true,
     },
   })
@@ -245,6 +249,8 @@ export default function SaleEventForm({
   const bannerMobile = watch('banner_mobile_url') ?? ''
   const labelDesktop = watch('label_image_desktop_url') ?? ''
   const labelMobile = watch('label_image_mobile_url') ?? ''
+  const labelIcon = watch('label_icon_url') ?? ''
+  const labelBgColor = watch('label_bg_color') ?? ''
 
   // ── Copy from another sale event (same site or another site) ──────────────
   const [copiedFrom, setCopiedFrom] = useState<SaleCopySource | null>(null)
@@ -272,6 +278,8 @@ export default function SaleEventForm({
       banner_mobile_url: se.banner_mobile_url ?? '',
       label_image_desktop_url: se.label_image_desktop_url ?? '',
       label_image_mobile_url: se.label_image_mobile_url ?? '',
+      label_bg_color: se.label_bg_color ?? '',
+      label_icon_url: se.label_icon_url ?? '',
       is_active: se.is_active ?? true,
     })
 
@@ -336,6 +344,8 @@ export default function SaleEventForm({
         banner_mobile_url: meta.banner_mobile_url || null,
         label_image_desktop_url: meta.label_image_desktop_url || null,
         label_image_mobile_url: meta.label_image_mobile_url || null,
+        label_bg_color: meta.label_bg_color || null,
+        label_icon_url: meta.label_icon_url || null,
         is_active: meta.is_active,
         sale_prices,
       }
@@ -511,6 +521,35 @@ export default function SaleEventForm({
             <Input {...register('label_text')} placeholder="Early Prime Day Sale" className="h-9 text-sm" />
           </div>
 
+          {/* Label bar (marquee) — background color + repeating icon */}
+          <div>
+            <Label className="text-xs font-medium block mb-2">Label Bar <span className="text-gray-400 font-normal">— the scrolling strip that repeats the label text</span></Label>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wide">Background Color</p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={/^#[0-9a-fA-F]{6}$/.test(labelBgColor) ? labelBgColor : '#0F4A35'}
+                    onChange={e => setValue('label_bg_color', e.target.value)}
+                    className="h-8 w-10 shrink-0 rounded border cursor-pointer bg-transparent p-0.5"
+                    title="Pick the label bar background color"
+                  />
+                  <Input {...register('label_bg_color')} placeholder="#1E3A5F" className="h-8 text-xs font-mono" />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wide">Icon <span className="normal-case text-gray-400">(repeats before the text)</span></p>
+                <ImageUploader currentUrl={labelIcon} folder={`${siteSlug}/sales`}
+                  filename={`label-icon-${event?.id ?? 'new'}`}
+                  onUploaded={url => setValue('label_icon_url', url)}
+                  onRemove={() => setValue('label_icon_url', '')} label="Upload Icon" />
+                <Input {...register('label_icon_url')} placeholder="or paste URL"
+                  className="h-7 text-[10px] font-mono" />
+              </div>
+            </div>
+          </div>
+
           {/* Label images */}
           <div>
             <Label className="text-xs font-medium block mb-2">Label Images</Label>
@@ -519,7 +558,8 @@ export default function SaleEventForm({
                 <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wide">Desktop</p>
                 <ImageUploader currentUrl={labelDesktop} folder={`${siteSlug}/sales`}
                   filename={`label-desktop-${event?.id ?? 'new'}`}
-                  onUploaded={url => setValue('label_image_desktop_url', url)} label="Upload" />
+                  onUploaded={url => setValue('label_image_desktop_url', url)}
+                  onRemove={() => setValue('label_image_desktop_url', '')} label="Upload" />
                 <Input {...register('label_image_desktop_url')} placeholder="or paste URL"
                   className="h-7 text-[10px] font-mono" />
               </div>
@@ -527,7 +567,8 @@ export default function SaleEventForm({
                 <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wide">Mobile</p>
                 <ImageUploader currentUrl={labelMobile} folder={`${siteSlug}/sales`}
                   filename={`label-mobile-${event?.id ?? 'new'}`}
-                  onUploaded={url => setValue('label_image_mobile_url', url)} label="Upload" />
+                  onUploaded={url => setValue('label_image_mobile_url', url)}
+                  onRemove={() => setValue('label_image_mobile_url', '')} label="Upload" />
                 <Input {...register('label_image_mobile_url')} placeholder="or paste URL"
                   className="h-7 text-[10px] font-mono" />
               </div>
@@ -542,7 +583,8 @@ export default function SaleEventForm({
                 <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wide">Desktop</p>
                 <ImageUploader currentUrl={bannerDesktop} folder={`${siteSlug}/sales`}
                   filename={`banner-desktop-${event?.id ?? 'new'}`}
-                  onUploaded={url => setValue('banner_desktop_url', url)} label="Upload" />
+                  onUploaded={url => setValue('banner_desktop_url', url)}
+                  onRemove={() => setValue('banner_desktop_url', '')} label="Upload" />
                 <Input {...register('banner_desktop_url')} placeholder="or paste URL"
                   className="h-7 text-[10px] font-mono" />
               </div>
@@ -550,7 +592,8 @@ export default function SaleEventForm({
                 <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wide">Mobile</p>
                 <ImageUploader currentUrl={bannerMobile} folder={`${siteSlug}/sales`}
                   filename={`banner-mobile-${event?.id ?? 'new'}`}
-                  onUploaded={url => setValue('banner_mobile_url', url)} label="Upload" />
+                  onUploaded={url => setValue('banner_mobile_url', url)}
+                  onRemove={() => setValue('banner_mobile_url', '')} label="Upload" />
                 <Input {...register('banner_mobile_url')} placeholder="or paste URL"
                   className="h-7 text-[10px] font-mono" />
               </div>

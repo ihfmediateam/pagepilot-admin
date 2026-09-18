@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { Upload, Loader2, ImageIcon } from 'lucide-react'
+import { Upload, Loader2, ImageIcon, Trash2 } from 'lucide-react'
 
 type Props = {
   // Current URL in the form (used to delete old file + show preview)
@@ -14,13 +14,23 @@ type Props = {
   // Called with the new CDN URL after a successful upload
   onUploaded: (newUrl: string) => void
   label?: string
+  // When provided, a "Remove" button clears the image (called to blank the field).
+  // The removal persists when the parent form is saved.
+  onRemove?: () => void
 }
 
-export default function ImageUploader({ currentUrl, folder, filename, onUploaded, label = 'Upload Image' }: Props) {
+export default function ImageUploader({ currentUrl, folder, filename, onUploaded, label = 'Upload Image', onRemove }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string>(currentUrl)
   const [imgBroken, setImgBroken] = useState(false)
+
+  function handleRemove() {
+    setPreviewUrl('')
+    setImgBroken(false)
+    onRemove?.()
+    if (inputRef.current) inputRef.current.value = ''
+  }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -48,10 +58,10 @@ export default function ImageUploader({ currentUrl, folder, filename, onUploaded
       if (!res.ok) {
         toast.error('Upload failed', { description: data.error })
       } else {
-        // Add cache-buster so the browser loads the fresh image
-        const freshUrl = `${data.url}?t=${Date.now()}`
-        setPreviewUrl(freshUrl)
-        onUploaded(data.url) // save clean URL (no cache-buster) to the form
+        // The API already returns a version-stamped URL (…?v=timestamp) that
+        // busts CDN/browser cache, so use it for both the preview and the form.
+        setPreviewUrl(data.url)
+        onUploaded(data.url)
         toast.success('Image uploaded!', { description: `Saved to ${data.path}` })
       }
     } catch (err) {
@@ -113,6 +123,17 @@ export default function ImageUploader({ currentUrl, folder, filename, onUploaded
           : <><Upload size={12} />{label}</>
         }
       </button>
+
+      {/* Remove button — only when opted in and an image is set */}
+      {onRemove && previewUrl && !uploading && (
+        <button
+          type="button"
+          onClick={handleRemove}
+          className="w-full flex items-center justify-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-destructive/30 text-destructive transition-colors hover:bg-destructive/5"
+        >
+          <Trash2 size={12} /> Remove
+        </button>
+      )}
 
       {/* Hidden file input */}
       <input

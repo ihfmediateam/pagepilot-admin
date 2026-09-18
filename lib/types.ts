@@ -99,6 +99,8 @@ export type SaleEvent = {
   label_text: string | null
   label_image_desktop_url: string | null
   label_image_mobile_url: string | null
+  label_bg_color: string | null
+  label_icon_url: string | null
   is_active: boolean
   created_at: string
   updated_at: string

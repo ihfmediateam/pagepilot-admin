@@ -61,7 +61,8 @@ function pathFromUrl(url: string | null | undefined): string | null {
     const marker = `/object/public/${BUCKET}/`
     const idx = url.indexOf(marker)
     if (idx === -1) return null
-    return url.slice(idx + marker.length)
+    // Strip any cache-busting query (?v=…) so it resolves to the real storage path.
+    return url.slice(idx + marker.length).split('?')[0]
   } catch {
     return null
   }
@@ -76,7 +77,7 @@ async function countReferences(supabase: Supa, path: string): Promise<number> {
   const [{ data: pkgs }, { data: ups }, { data: evts }, { data: sps }, subs] = await Promise.all([
     supabase.from('packages').select('package_image_url'),
     supabase.from('upsells').select('image_url'),
-    supabase.from('sale_events').select('banner_desktop_url, banner_mobile_url, label_image_desktop_url, label_image_mobile_url'),
+    supabase.from('sale_events').select('banner_desktop_url, banner_mobile_url, label_image_desktop_url, label_image_mobile_url, label_icon_url'),
     supabase.from('sale_prices').select('image_url_override, upsell_image_url'),
     supabase.from('subscription_plans').select('image_url'),
   ])
@@ -90,6 +91,7 @@ async function countReferences(supabase: Supa, path: string): Promise<number> {
   for (const r of (evts ?? []) as Record<string, string | null>[]) {
     hit(r.banner_desktop_url); hit(r.banner_mobile_url)
     hit(r.label_image_desktop_url); hit(r.label_image_mobile_url)
+    hit(r.label_icon_url)
   }
   for (const r of (sps ?? []) as Record<string, string | null>[]) {
     hit(r.image_url_override); hit(r.upsell_image_url)
@@ -161,12 +163,17 @@ export async function POST(request: Request) {
       }
     }
 
-    // 4. Get public URL
+    // 4. Get public URL. Uploads overwrite the same path (upsert), so the URL
+    //    would otherwise be identical across replacements — and Supabase serves
+    //    objects with max-age=3600, so the CDN/browser keeps the OLD bytes for
+    //    up to an hour. Append a version param that changes on every upload so
+    //    the stored URL is unique per image and always fetches fresh.
     const { data: { publicUrl } } = supabase.storage
       .from(BUCKET)
       .getPublicUrl(newPath)
+    const versionedUrl = `${publicUrl}?v=${Date.now()}`
 
-    return NextResponse.json({ url: publicUrl, path: newPath })
+    return NextResponse.json({ url: versionedUrl, path: newPath })
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
   }

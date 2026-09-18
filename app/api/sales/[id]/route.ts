@@ -8,7 +8,8 @@ function pathFromUrl(url: string | null | undefined): string | null {
   try {
     const marker = `/object/public/${BUCKET}/`
     const idx = url.indexOf(marker)
-    return idx === -1 ? null : url.slice(idx + marker.length)
+    // Strip any cache-busting query (?v=…) so it resolves to the real storage path.
+    return idx === -1 ? null : url.slice(idx + marker.length).split('?')[0]
   } catch {
     return null
   }
@@ -26,7 +27,7 @@ export async function DELETE(
     // Fetch all image URLs before deleting (cascade will remove sale_prices too)
     const { data: event } = await supabase
       .from('sale_events')
-      .select('banner_desktop_url, banner_mobile_url, label_image_desktop_url, label_image_mobile_url, sale_prices(image_url_override, upsell_image_url)')
+      .select('banner_desktop_url, banner_mobile_url, label_image_desktop_url, label_image_mobile_url, label_icon_url, sale_prices(image_url_override, upsell_image_url)')
       .eq('id', id)
       .single()
 
@@ -41,6 +42,7 @@ export async function DELETE(
         event.banner_mobile_url,
         event.label_image_desktop_url,
         event.label_image_mobile_url,
+        event.label_icon_url,
       ]
       const prices = (event as Record<string, unknown>).sale_prices as { image_url_override?: string | null; upsell_image_url?: string | null }[] | undefined
       for (const sp of prices ?? []) {
@@ -58,7 +60,7 @@ export async function DELETE(
         const [{ data: pkgs }, { data: ups }, { data: evts }, { data: sps }] = await Promise.all([
           supabase.from('packages').select('package_image_url'),
           supabase.from('upsells').select('image_url'),
-          supabase.from('sale_events').select('banner_desktop_url, banner_mobile_url, label_image_desktop_url, label_image_mobile_url'),
+          supabase.from('sale_events').select('banner_desktop_url, banner_mobile_url, label_image_desktop_url, label_image_mobile_url, label_icon_url'),
           supabase.from('sale_prices').select('image_url_override, upsell_image_url'),
         ])
 
@@ -72,6 +74,7 @@ export async function DELETE(
         for (const r of (evts ?? []) as Record<string, string | null>[]) {
           keep(r.banner_desktop_url); keep(r.banner_mobile_url)
           keep(r.label_image_desktop_url); keep(r.label_image_mobile_url)
+          keep(r.label_icon_url)
         }
         for (const r of (sps ?? []) as Record<string, string | null>[]) {
           keep(r.image_url_override); keep(r.upsell_image_url)
