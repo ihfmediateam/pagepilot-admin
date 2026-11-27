@@ -101,6 +101,8 @@ export type SaleEvent = {
   label_image_mobile_url: string | null
   label_bg_color: string | null
   label_icon_url: string | null
+  promo_code: string | null
+  promo_discount_percent: number | null
   is_active: boolean
   created_at: string
   updated_at: string

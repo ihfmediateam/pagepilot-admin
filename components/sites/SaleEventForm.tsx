@@ -50,6 +50,8 @@ const metaSchema = z.object({
   label_image_mobile_url: z.string().optional(),
   label_bg_color: z.string().optional(),
   label_icon_url: z.string().optional(),
+  promo_code: z.string().optional(),
+  promo_discount_percent: z.string().optional(),
   is_active: z.boolean(),
 })
 type MetaValues = z.infer<typeof metaSchema>
@@ -240,6 +242,8 @@ export default function SaleEventForm({
       label_image_mobile_url: event?.label_image_mobile_url ?? '',
       label_bg_color: event?.label_bg_color ?? '',
       label_icon_url: event?.label_icon_url ?? '',
+      promo_code: event?.promo_code ?? '',
+      promo_discount_percent: event?.promo_discount_percent != null ? String(event.promo_discount_percent) : '',
       is_active: event?.is_active ?? true,
     },
   })
@@ -280,6 +284,8 @@ export default function SaleEventForm({
       label_image_mobile_url: se.label_image_mobile_url ?? '',
       label_bg_color: se.label_bg_color ?? '',
       label_icon_url: se.label_icon_url ?? '',
+      promo_code: se.promo_code ?? '',
+      promo_discount_percent: se.promo_discount_percent != null ? String(se.promo_discount_percent) : '',
       is_active: se.is_active ?? true,
     })
 
@@ -346,6 +352,9 @@ export default function SaleEventForm({
         label_image_mobile_url: meta.label_image_mobile_url || null,
         label_bg_color: meta.label_bg_color || null,
         label_icon_url: meta.label_icon_url || null,
+        promo_code: meta.promo_code || null,
+        // integer column — round any decimal input; blank/invalid → null
+        promo_discount_percent: (() => { const n = numOrNull(meta.promo_discount_percent ?? ''); return n == null ? null : Math.round(n) })(),
         is_active: meta.is_active,
         sale_prices,
       }
@@ -505,6 +514,21 @@ export default function SaleEventForm({
               </Label>
               <Input {...register('ends_at')} type="datetime-local" className="h-9 text-xs" />
               {errors.ends_at && <p className="text-xs text-destructive">{errors.ends_at.message}</p>}
+            </div>
+          </div>
+
+          {/* Promo code + discount */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">
+                Promo Code <span className="text-gray-400 font-normal">— extra code shown at checkout</span>
+              </Label>
+              <Input {...register('promo_code')} placeholder="BFCM5" className="h-9 text-sm font-mono uppercase" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs font-medium">Promo Discount %</Label>
+              <Input {...register('promo_discount_percent')} type="number" min="0" max="100" step="1"
+                placeholder="5" className="h-9 text-sm" />
             </div>
           </div>
 
